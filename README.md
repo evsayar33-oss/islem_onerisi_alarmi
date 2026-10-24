@@ -1,6 +1,8 @@
 # islem_onerisi_alarmi — ICT çoklu zaman dilimi konfluens araştırma motoru
 
 > **Tek dosyada tüm sonuçlar:** [`STRATEGY_BOOK.md`](STRATEGY_BOOK.md) — her varlığın seçilen kuralı, kuralların tam tanımları, kilitli 2 yıllık test sonuçları ve 1 birimin büyümesi. Başka bir kişiye veya yapay zekaya gösterilecek dosya budur.
+>
+> **Denenen tüm yöntemler ve sonuçları:** [`RESEARCH_LOG.md`](RESEARCH_LOG.md) — volatilite boyutlandırma, 15 dakikalık giriş, haber/makro takvimi ve yeni ICT modelleri (Judas, PO3, Turtle Soup, Silver Bullet).
 
 Bu sistem ICT kavramlarının (FVG, Order Block, MSB, likidite) her kombinasyonunu
 6 varlıkta test eder. Sistem en güçlü birleşimleri bulur. Sistem her çalışmada kendi
