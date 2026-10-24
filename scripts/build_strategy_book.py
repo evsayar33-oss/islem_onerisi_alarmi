@@ -22,9 +22,9 @@ SOURCES = {"NQ": "Dukascopy USATECHIDXUSD 1h", "SPX": "Dukascopy USA500IDXUSD 1h
            "BTC": "Binance spot BTCUSDT 1h", "ETH": "Binance spot ETHUSDT 1h"}
 
 ZONE_TEXT = {
-    "FVG": "a fair value gap (FVG)", "OB": "an order block (OB)", "BB": "a breaker block (BB)",
-    "MB": "a mitigation block (MB)", "RB": "a rejection block (RB)",
-    "PB": "a propulsion block (PB)", "VB": "a vacuum block (VB)", "ANYB": "any block type",
+    "FVG": "fair value gap (FVG)", "OB": "order block (OB)", "BB": "breaker block (BB)",
+    "MB": "mitigation block (MB)", "RB": "rejection block (RB)",
+    "PB": "propulsion block (PB)", "VB": "vacuum block (VB)", "ANYB": "block of any type",
 }
 TF_TEXT = {"monthly": "monthly", "weekly": "weekly", "daily": "daily", "h4": "4-hour"}
 STOP_TEXT = {
@@ -65,7 +65,7 @@ def stop_text(name: str) -> str:
 
 def slot_text(choice: str) -> str:
     if choice.startswith("FVG+"):
-        return f"an FVG that overlaps {ZONE_TEXT[choice[4:]]} (FVG inside the block area)"
+        return f"FVG that overlaps a {ZONE_TEXT[choice[4:]]} (FVG inside the block area)"
     return ZONE_TEXT.get(choice, choice)
 
 
@@ -164,6 +164,26 @@ def main() -> None:
              "search, the walk-forward or the selection. '1 unit @1%' = what 1 unit of "
              "capital became over the holdout when each trade risks 1 % of current equity "
              "(compounded, costs included).\n\n")
+    allc = pd.DataFrame([x for d in data.values() for x in d["candidates"]])
+    sel = pd.DataFrame(rows)
+    if len(allc) and len(sel):
+        rob = allc[allc["method"] == "robust"]
+        pos_sel = int((sel["holdout R/trade"] > 0).sum())
+        L.append(
+            "**Bottom line.** The selected rule (robust #1) was positive in the locked holdout "
+            f"on {pos_sel} of {len(sel)} assets. Across all {len(rob)} robust candidates, "
+            f"{int((rob['hold_exp'] > 0).sum())} were positive and the average holdout result "
+            f"was {rob['hold_exp'].mean():+.3f} R/trade. Search-period results were "
+            "much better than holdout results, which means most of the search-period edge was "
+            "selection luck (overfitting). No rule in this book is a proven edge; the "
+            "candidates that stayed positive in the holdout are a watch list for paper "
+            "trading.\n\n"
+            "**Türkçe özet.** Seçilen kural (robust #1) kilitli son 2 yılda pozitif kalan "
+            f"varlık sayısı: {pos_sel}/{len(sel)}. Pozitif kalan robust aday sayısı: "
+            f"{int((rob['hold_exp'] > 0).sum())}/{len(rob)}; ortalama sonuç "
+            f"{rob['hold_exp'].mean():+.3f} R/işlem. Arama dönemindeki güçlü sonuçlar ileriye "
+            "taşınmadı. Bu kitaptaki hiçbir kural kanıtlanmış bir avantaj değildir; kilitli "
+            "dönemde pozitif kalanlar yalnızca kâğıt üzerinde izlenecek adaylardır.\n\n")
 
     # ------------------------------------------------------------------ method
     L.append("## 2. How to read the numbers\n\n")
