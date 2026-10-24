@@ -79,6 +79,40 @@ def decode_dukascopy_candles(raw: bytes, period_start: datetime, divisor: float)
     return df[df["volume"] > 0]
 
 
+def _duka_get(url: str, tries: int = 6) -> bytes | None:
+    """GET with backoff: the feed rate-limits with 429 / 503 / resets / timeouts."""
+    for attempt in range(tries):
+        try:
+            raw = _http_get(url, timeout=30)
+            time.sleep(0.5)
+            return raw
+        except Exception:
+            time.sleep(2 * 2 ** attempt)
+    return None
+
+
+def _duka_month_from_minutes(base: str, store: Path, m: pd.Timestamp, end_ts: pd.Timestamp,
+                             div: float) -> pd.DataFrame:
+    """One month of 1h bars rebuilt from Dukascopy daily 1-minute candle files."""
+    frames = []
+    last = min(m + pd.offsets.MonthEnd(0), end_ts - pd.Timedelta(days=1))
+    for d in pd.date_range(m, last, freq="D"):
+        if d.dayofweek == 5:  # no trading on Saturday
+            continue
+        f = store / f"{d:%Y-%m-%d}.min.bi5"
+        raw = f.read_bytes() if f.exists() else _duka_get(
+            f"{base}/{d.year}/{d.month - 1:02d}/{d.day:02d}/BID_candles_min_1.bi5")
+        if raw is None:
+            continue
+        if not f.exists():
+            f.write_bytes(raw)
+        if raw:
+            frames.append(decode_dukascopy_candles(raw, d.to_pydatetime(), div))
+    if not frames:
+        return pd.DataFrame(columns=OHLCV)
+    return minute_to_hour(pd.concat(frames))
+
+
 def load_dukascopy(symbol: str, start: str = "2012-01-01", end: str | None = None) -> pd.DataFrame:
     end_ts = pd.Timestamp(end or datetime.now(timezone.utc).date().isoformat(), tz="UTC")
     months = pd.date_range(pd.Timestamp(start, tz="UTC"), end_ts, freq="MS")
@@ -87,27 +121,27 @@ def load_dukascopy(symbol: str, start: str = "2012-01-01", end: str | None = Non
     store = CACHE.parent / "raw" / "dukascopy" / symbol
     store.mkdir(parents=True, exist_ok=True)
     this_month = pd.Timestamp(datetime.now(timezone.utc).date().isoformat(), tz="UTC").replace(day=1)
+    base = f"https://datafeed.dukascopy.com/datafeed/{symbol}"
     for n, m in enumerate(months, 1):
         f = store / f"{m:%Y-%m}.bi5"
         raw = None
         if f.exists() and m < this_month:  # finished months never change: reuse
             raw = f.read_bytes()
-        else:
-            url = (f"https://datafeed.dukascopy.com/datafeed/{symbol}/{m.year}/"
-                   f"{m.month - 1:02d}/BID_candles_hour_1.bi5")
-            # The feed rate-limits (429 / 503 / resets / timeouts): back off and retry.
-            for attempt in range(6):
-                try:
-                    raw = _http_get(url, timeout=30)
-                    break
-                except Exception:
-                    time.sleep(2 * 2 ** attempt)
+        elif m < this_month:
+            raw = _duka_get(f"{base}/{m.year}/{m.month - 1:02d}/BID_candles_hour_1.bi5")
             if raw:
                 f.write_bytes(raw)
-            time.sleep(0.5)
-        print(f"{symbol} {m:%Y-%m} {n}/{len(months)} {'ok' if raw else 'missing'}", flush=True)
         if raw:
             frames.append(decode_dukascopy_candles(raw, m.to_pydatetime(), div))
+            status = "ok"
+        else:
+            # Monthly hour file not published yet (current month) or refused after
+            # retries: rebuild the month from daily minute files instead.
+            part = _duka_month_from_minutes(base, store, m, end_ts, div)
+            status = f"minutes:{len(part)}" if len(part) else "missing"
+            if len(part):
+                frames.append(part)
+        print(f"{symbol} {m:%Y-%m} {n}/{len(months)} {status}", flush=True)
     if not frames:
         raise RuntimeError(f"dukascopy returned no data for {symbol}")
     return _finish(pd.concat(frames))
