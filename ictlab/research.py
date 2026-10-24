@@ -283,9 +283,9 @@ def slot_strength(df: pd.DataFrame) -> pd.DataFrame:
     slots["H1"] = [entry_name.get(int(k), "?") for k in best["kmask"]]
     best = best.join(slots)
     rows = []
-    for col in [*HTF, "LIQ", "MSB", "H1"]:
+    for col in [*HTF, "LIQ", "MSB", "FILTER", "H1"]:
         for val, g in best.groupby(col):
-            if col in HTF and val == "-":
+            if col in (*HTF, "FILTER") and val == "-":
                 continue
             if col in ("LIQ", "MSB") and not val:
                 continue

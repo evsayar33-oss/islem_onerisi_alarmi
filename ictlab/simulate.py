@@ -19,7 +19,7 @@ def grid_arrays():
     sv = np.array([s.value for s in STOPS], np.float64)
     em = np.array([ENTRY_CODE[e] for e in ENTRY_MODES], np.int64)
     rr = np.array(RR_GRID, np.float64)
-    mg = np.array([0 if m == "none" else 1 for m in MGMT], np.int64)
+    mg = np.array([{"none": 0, "be1r": 1, "trail2atr": 2}[m] for m in MGMT], np.int64)
     return em, sk, sv, rr, mg
 
 
@@ -46,8 +46,12 @@ def _fill(tt, d, zlo, zhi, inv, mode, o, h, l, c, valid):
 
 
 @njit(cache=True)
-def _path(d, fb, entry, stop, target, be, o, h, l, c, max_hold, is_limit):
-    """Walk bars after the fill; return (exit_price, exit_bar)."""
+def _path(d, fb, entry, stop, target, be, o, h, l, c, max_hold, is_limit, tdist):
+    """Walk bars after the fill; return (exit_price, exit_bar).
+
+    be: 0 none, 1 stop to entry at +1R, 2 trail the stop `tdist` behind the best
+    price once +1R was reached (updated after each bar closes, used from the next).
+    """
     n = c.size
     risk = abs(entry - stop)
     s = stop
@@ -55,6 +59,8 @@ def _path(d, fb, entry, stop, target, be, o, h, l, c, max_hold, is_limit):
         if (d == 1 and l[fb] <= s) or (d == -1 and h[fb] >= s):
             return s, fb
     last = min(n - 1, fb + max_hold)
+    armed = False
+    best = entry
     for b in range(fb + 1, last + 1):
         if d == 1:
             if o[b] <= s:
@@ -65,8 +71,14 @@ def _path(d, fb, entry, stop, target, be, o, h, l, c, max_hold, is_limit):
                 return o[b], b
             if h[b] >= target:
                 return target, b
-            if be == 1 and h[b] >= entry + risk:
-                s = max(s, entry)
+            if be >= 1 and h[b] >= entry + risk:
+                armed = True
+            if armed:
+                if be == 1:
+                    s = max(s, entry)
+                else:
+                    best = max(best, h[b])
+                    s = max(s, entry, best - tdist)
         else:
             if o[b] >= s:
                 return o[b], b
@@ -76,8 +88,14 @@ def _path(d, fb, entry, stop, target, be, o, h, l, c, max_hold, is_limit):
                 return o[b], b
             if l[b] <= target:
                 return target, b
-            if be == 1 and l[b] <= entry - risk:
-                s = min(s, entry)
+            if be >= 1 and l[b] <= entry - risk:
+                armed = True
+            if armed:
+                if be == 1:
+                    s = min(s, entry)
+                else:
+                    best = min(best, l[b])
+                    s = min(s, entry, best + tdist)
     return c[last], last
 
 
@@ -121,7 +139,7 @@ def simulate(tt, td, tlo, thi, text, tinv, o, h, l, c, a1, swing_lo, swing_hi,
                     target = entry + rr[r] * risk if d == 1 else entry - rr[r] * risk
                     for m in range(mg.size):
                         xp, xb = _path(d, fb, entry, stop, target, mg[m], o, h, l, c,
-                                       max_hold, em[e] != 0)
+                                       max_hold, em[e] != 0, 2.0 * a)
                         pnl = (xp - entry) if d == 1 else (entry - xp)
                         R[i, e, s, r, m] = pnl / risk - cost_r
                         XB[i, e, s, r, m] = xb

@@ -45,8 +45,15 @@ HTF: tuple[str, ...] = ("M", "W", "D", "H4")
 ZONE_TYPES: tuple[str, ...] = ("FVG", "OB", "BB", "MB", "RB", "PB", "VB")
 BLOCK_TYPES: tuple[str, ...] = ZONE_TYPES[1:]
 # Condition bits: 8 per HTF (7 zone types + ANYB = any block), then M_LIQ, H4_MSB.
+# Rule filters (named so that no HTF slot prefix such as "D_" or "W_" matches them):
+#   BIAS_D  daily close on the trade side of its 50-day EMA
+#   BIAS_W  latest weekly structure break in the trade direction
+#   KZ      entry hour inside a killzone (London 02-05, New York 07-11, NY time)
+#   PD      long in discount / short in premium of the previous week's range
+FILTERS: tuple[str, ...] = ("BIAS_D", "BIAS_W", "KZ", "PD")
 CONDITIONS: tuple[str, ...] = tuple(
-    [f"{tf}_{z}" for tf in HTF for z in (*ZONE_TYPES, "ANYB")] + ["M_LIQ", "H4_MSB"])
+    [f"{tf}_{z}" for tf in HTF for z in (*ZONE_TYPES, "ANYB")] + ["M_LIQ", "H4_MSB"]
+    + list(FILTERS))
 BIT = {name: i for i, name in enumerate(CONDITIONS)}
 # Entry filters over the 1h trigger kind (index into ZONE_TYPES) as kind bitmasks.
 ENTRY_FILTERS: dict[str, int] = {
@@ -55,6 +62,13 @@ ENTRY_FILTERS: dict[str, int] = {
     "ANY": (1 << len(ZONE_TYPES)) - 1,
 }
 ENTRY_TYPES: tuple[str, ...] = tuple(ENTRY_FILTERS)
+
+
+def filter_options() -> list[tuple[str, int]]:
+    """Choices for the rule-filter slot (single filters and the main pairing)."""
+    b = lambda name: 1 << BIT[name]  # noqa: E731
+    return [("-", 0), ("BIAS_D", b("BIAS_D")), ("BIAS_W", b("BIAS_W")), ("KZ", b("KZ")),
+            ("PD", b("PD")), ("BIAS_D+KZ", b("BIAS_D") | b("KZ"))]
 
 
 def slot_options(tf: str) -> list[tuple[str, int]]:
@@ -91,7 +105,9 @@ STOPS: tuple[StopSpec, ...] = (
 RR_GRID: tuple[float, ...] = (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0)
 ENTRY_MODES: tuple[str, ...] = ("market", "limit_edge", "limit_ce")
 # Trade management: none, or move stop to break-even once price reaches +1R.
-MGMT: tuple[str, ...] = ("none", "be1r")
+# Trade management: none; break-even once +1R; or trail the stop 2 ATR behind the best
+# price once +1R is reached.
+MGMT: tuple[str, ...] = ("none", "be1r", "trail2atr")
 KIND_CODE = {"zone": 0, "atr": 1, "swing": 2, "pattern": 3}
 ENTRY_CODE = {"market": 0, "limit_edge": 1, "limit_ce": 2}
 

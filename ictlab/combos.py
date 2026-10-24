@@ -21,8 +21,8 @@ import numpy as np
 import pandas as pd
 from numba import njit, prange
 
-from .config import (BIT, CONDITIONS, ENTRY_FILTERS, ENTRY_MODES, HTF, MGMT, RR_GRID, STOPS,
-                     slot_options)
+from .config import (BIT, CONDITIONS, ENTRY_FILTERS, ENTRY_MODES, FILTERS, HTF, MGMT, RR_GRID,
+                     STOPS, filter_options, slot_options)
 
 NSTAT = 18
 STAT_COLS = [
@@ -63,6 +63,9 @@ def combo_name(mask: int, kmask: int) -> str:
         parts.append("M:LIQ")
     if mask >> BIT["H4_MSB"] & 1:
         parts.append("H4:MSB")
+    f = _filter_name(mask)
+    if f != "-":
+        parts.append(f"F:{f}")
     entry = next((k for k, v in ENTRY_FILTERS.items() if v == kmask), f"k{kmask}")
     parts.append(f"H1:{entry}")
     return " | ".join(parts)
@@ -74,6 +77,12 @@ def _tf_bits(tf: str) -> int:
                if c.startswith(f"{tf}_") and c not in ("M_LIQ", "H4_MSB"))
 
 
+def _filter_name(mask: int) -> str:
+    fb = sum(1 << BIT[f] for f in FILTERS)
+    sel = [name for name, m in filter_options() if m == (mask & fb)]
+    return sel[0] if sel else "?"
+
+
 def parse_slots(mask: int) -> dict[str, str]:
     out = {}
     for tf in HTF:
@@ -81,6 +90,7 @@ def parse_slots(mask: int) -> dict[str, str]:
         out[tf] = sel[0] if sel else "?"
     out["LIQ"] = bool(mask >> BIT["M_LIQ"] & 1)
     out["MSB"] = bool(mask >> BIT["H4_MSB"] & 1)
+    out["FILTER"] = _filter_name(mask)
     return out
 
 
@@ -91,6 +101,7 @@ def enumerate_combos(bits: np.ndarray, kind: np.ndarray, min_trades: int,
     slots = [slot_options(tf) for tf in HTF]
     slots.append([("-", 0), ("LIQ", 1 << BIT["M_LIQ"])])
     slots.append([("-", 0), ("MSB", 1 << BIT["H4_MSB"])])
+    slots.append(filter_options())
     masks, kmasks, seen = [], [], set()
     raw = 0
     kbit = np.left_shift(1, kind)

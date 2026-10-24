@@ -153,6 +153,7 @@ def build_context(h1: pd.DataFrame, spec: AssetSpec, p: ResearchParams) -> Asset
 
     zones = {}
     msb4 = (np.empty(0, np.int64), np.empty(0, np.int64))
+    msbw = msb4
     for tf in HTF:
         zs, msb = build_zones(tfs[tf]["df"], tfs[tf]["close_idx"], n1, p, tf)
         for z, v in zs.items():
@@ -161,6 +162,8 @@ def build_context(h1: pd.DataFrame, spec: AssetSpec, p: ResearchParams) -> Asset
                                    v.hi[srt])
         if tf == "H4":
             msb4 = msb
+        if tf == "W":
+            msbw = msb
 
     plo, phi = prev_month_levels(tfs["M"], n1)
     la, sa = F.liquidity_sweeps(l, h, c, plo, phi, p.liq_lookback_h1)
@@ -181,8 +184,44 @@ def build_context(h1: pd.DataFrame, spec: AssetSpec, p: ResearchParams) -> Asset
     bits |= liq.astype(np.int64) << BIT["M_LIQ"]
     msb = msb_state(trig.t, trig.dir, msb4[0], msb4[1], tfs["H4"]["close_idx"], p.msb_max_age_h4)
     bits |= msb.astype(np.int64) << BIT["H4_MSB"]
+    for name, ok in rule_filters(h1, tfs, trig, msbw).items():
+        bits |= ok.astype(np.int64) << BIT[name]
     trig.bits = bits
     return AssetContext(spec.key, h1, tfs, a1, sl_p, sh_p, trig, zones, (la, sa), msb4)
+
+
+KILLZONES_NY = ((2, 5), (7, 11))  # London open, New York morning (NY local hours)
+
+
+def rule_filters(h1: pd.DataFrame, tfs: dict, trig: Triggers,
+                 msbw: tuple[np.ndarray, np.ndarray]) -> dict[str, np.ndarray]:
+    """Trend, killzone and premium/discount filters, known at the trigger bar close."""
+    t, d = trig.t, trig.dir
+    out = {}
+    # BIAS_D: last closed daily bar's close vs EMA50 of daily closes
+    dd = tfs["D"]
+    dc = dd["df"]["close"]
+    side = np.sign((dc - dc.ewm(span=50, adjust=False).mean()).to_numpy())
+    k = np.searchsorted(dd["close_idx"], t, side="right") - 1
+    out["BIAS_D"] = (k >= 50) & (side[np.clip(k, 0, None)] == d)
+    # BIAS_W: latest visible weekly MSB in the trade direction (no freshness limit)
+    out["BIAS_W"] = msb_state(t, d, msbw[0], msbw[1], tfs["W"]["close_idx"], 10**9)
+    # KZ: the entry bar (the hour after the trigger closes) opens inside a killzone
+    hrs = (h1.index[t] + pd.Timedelta(hours=1)).tz_convert("America/New_York").hour.to_numpy()
+    kz = np.zeros(t.size, bool)
+    for a, b in KILLZONES_NY:
+        kz |= (hrs >= a) & (hrs < b)
+    out["KZ"] = kz
+    # PD: entry-zone midpoint vs 50 % of the previous completed week's range
+    w = tfs["W"]
+    wk = np.searchsorted(w["close_idx"], t, side="right") - 1
+    wh = w["df"]["high"].to_numpy()
+    wl = w["df"]["low"].to_numpy()
+    wc = np.clip(wk, 0, None)
+    eq = 0.5 * (wh[wc] + wl[wc])
+    mid = 0.5 * (trig.lo + trig.hi)
+    out["PD"] = (wk >= 0) & np.where(d == 1, mid < eq, mid > eq)
+    return out
 
 
 def condition_rates(trig: Triggers) -> dict[str, float]:

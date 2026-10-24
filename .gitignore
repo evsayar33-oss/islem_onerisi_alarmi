@@ -5,3 +5,4 @@ data/cache/
 data/raw/
 results/*_grid.parquet
 results/signals.json
+results/**/*_grid.parquet

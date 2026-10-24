@@ -90,12 +90,12 @@ def test_path_rules():
     l = np.array([100, 99.5, 100.5, 102.0])
     c = np.array([100, 100.5, 103, 103.0])
     # long from 100, stop 99, target 103 -> target hit on bar 2
-    xp, xb = _path(1, 0, 100.0, 99.0, 103.0, 0, o, h, l, c, 10, False)
+    xp, xb = _path(1, 0, 100.0, 99.0, 103.0, 0, o, h, l, c, 10, False, 2.0)
     assert xp == 103 and xb == 2
     # same-bar tie -> stop
     l2 = l.copy()
     l2[2] = 98.0
-    xp, xb = _path(1, 0, 100.0, 99.0, 103.0, 0, o, h, l2, c, 10, False)
+    xp, xb = _path(1, 0, 100.0, 99.0, 103.0, 0, o, h, l2, c, 10, False, 2.0)
     assert xp == 99 and xb == 2
 
 
