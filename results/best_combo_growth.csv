@@ -1,0 +1,7 @@
+varlik,kombo,giris,stop,rr,yonetim,ilk,son,islem,kazanma%,ort_R,toplam_R,1birim_%1,maxDD_%1,1birim_%2,maxDD_%2,OOS_toplam_R
+NQ,M:MB | H4:RB | H1:ANYB,market,atr1.5,1.0,be1r,2006-03-09,2018-12-06,170,65.3,0.273,46.4,1.58,5.4,2.45,10.6,10.8
+SPX,D:OB | H4:ANYB | H4:MSB | H1:MB,limit_edge,pattern+0.1atr,3.0,none,2005-03-22,2020-01-15,111,44.1,0.619,68.7,1.94,6.3,3.6,12.4,16.5
+XAU,D:FVG+ANYB | H4:FVG+ANYB | H4:MSB | H1:ANY,market,atr3.0,1.0,none,2006-07-25,2020-04-09,110,68.2,0.324,35.6,1.42,4.1,2.0,8.0,11.5
+XAG,D:OB | H4:VB | H1:RB,limit_ce,zone+0.25atr,1.0,none,2007-01-26,2023-02-24,404,71.0,0.326,131.8,3.62,33.7,12.29,57.4,-5.1
+BTC,H4:FVG+OB | H4:MSB | H1:OB,market,atr1.0,6.0,none,2017-08-25,2026-10-18,190,27.9,0.784,149.0,4.04,11.5,13.63,21.8,37.9
+ETH,H4:MSB | H1:BB,market,atr1.5,6.0,be1r,2017-08-26,2026-10-18,816,15.8,0.311,253.5,10.15,23.4,68.63,42.2,30.0
