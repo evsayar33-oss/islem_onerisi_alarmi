@@ -102,7 +102,7 @@ STOPS: tuple[StopSpec, ...] = (
     StopSpec("pattern+0.1atr", "pattern", 0.1),
 )
 
-RR_GRID: tuple[float, ...] = (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0)
+RR_GRID: tuple[float, ...] = (0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0)
 ENTRY_MODES: tuple[str, ...] = ("market", "limit_edge", "limit_ce")
 # Trade management: none, or move stop to break-even once price reaches +1R.
 # Trade management: none; break-even once +1R; or trail the stop 2 ATR behind the best

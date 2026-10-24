@@ -330,8 +330,80 @@ def main() -> None:
                     for x in cands[1:]])))
                 L.append("\n")
 
+    # ------------------------------------------------------------------ win-rate study
+    wr = {a: json.loads((ROOT / "results" / "winrate" / f"{a}_winrate.json").read_text())
+          for a in ASSETS if (ROOT / "results" / "winrate" / f"{a}_winrate.json").exists()}
+    if wr:
+        L.append("## 7. High win-rate study (scripts/winrate_search.py)\n\n")
+        L.append(
+            "Question: which combinations have the highest win rate, and can the right stop and "
+            "RR turn them into profit? Method, using pre-holdout data only:\n\n"
+            "1. Score every combination by its win rate on a symmetric reference trade (market "
+            "entry, stop 1 x ATR, target 1 x ATR). A symmetric bracket measures directional "
+            "skill independent of RR. Rank by the lower 5 % bound of the in-sample win rate "
+            "(Beta posterior), minimum 60 trades.\n"
+            "2. For the top 20, test every entry x stop x RR (0.5-6) x management setting and "
+            "keep the one with the best in-sample expectancy lower bound.\n"
+            "3. Open the locked 2-year holdout once.\n\n"
+            "**Is win rate a real, persistent property of a combination?**\n\n")
+        rows = []
+        for a, d in wr.items():
+            n = d["noise_test"]
+            c = pd.DataFrame(d["selected"])
+            rows.append({"asset": a, "combos scored": d["combos_scored"],
+                         "base win rate": d["pooled_reference_wr_is"],
+                         "observed sd": n["observed_sd"], "pure-noise sd": n["noise_sd"],
+                         "implied true-skill sd": n["implied_skill_sd"],
+                         "top-20 WR in-sample": c["ref_wr_is"].mean(),
+                         "top-20 WR out-of-sample": c["ref_wr_oos"].mean(),
+                         "top-20 WR holdout": c["ref_hold_wr"].mean()})
+        L.append(md(pd.DataFrame(rows)))
+        L.append(
+            "\nReading: the spread of win rates across combinations is almost exactly what pure "
+            "chance produces (observed sd ~ noise sd). True differences in win rate between "
+            "combinations are at most about 2 percentage points. The combinations that showed "
+            "60-65 % in-sample fall back to roughly the base rate (about 40-53 % out-of-sample, "
+            "45-61 % in the holdout).\n\n"
+            "**Did the best stop/RR make the top-20 profitable in the holdout?**\n\n")
+        rows = []
+        for a, d in wr.items():
+            c = pd.DataFrame(d["selected"])
+            big = c[c["hold_n"] >= 10]
+            rows.append({"asset": a,
+                         "holdout price change": None,
+                         "rules positive / tested": f"{int((c['hold_exp'] > 0).sum())}/{len(c)}",
+                         "rules with >=10 holdout trades": len(big),
+                         "of those positive": int((big["hold_exp"] > 0).sum()),
+                         "mean R/trade (>=10 trades)": big["hold_exp"].mean() if len(big) else None})
+        L.append(md(pd.DataFrame(rows).drop(columns=["holdout price change"])))
+        L.append(
+            "\nPositive results in the holdout come mostly from rules with very few trades "
+            "(1-5) and large RR, so they are not evidence. XAU and XAG rose 47 % and 60 % in "
+            "the holdout, which favours long trades.\n\n"
+            "**Single conditions: which ones move the win rate?** (all triggers, reference "
+            "trade, average over the six assets; lift = win rate with the condition minus the "
+            "base rate)\n\n")
+        F = pd.concat([pd.DataFrame(d["factors"]).assign(asset=a) for a, d in wr.items()])
+        g = F.groupby("factor").agg(lift_is=("lift_is", "mean"), lift_oos=("lift_oos", "mean"),
+                                    lift_holdout=("lift_hold", "mean"),
+                                    holdout_trades=("n_hold", "sum")).reset_index()
+        g = g[g["holdout_trades"] >= 1000].sort_values("lift_holdout", ascending=False)
+        L.append(md(pd.concat([g.head(6), g.tail(6)])))
+        L.append(
+            "\nNo single condition changes the win rate by more than about 1-2 percentage "
+            "points in a way that holds in-sample, out-of-sample and in the holdout. 1h order "
+            "blocks as entries are slightly worse than average in all three periods.\n\n"
+            "**Conclusion of the win-rate study:** none of the tested ICT conditions or their "
+            "combinations produces a persistently high win rate on these six markets at 1h "
+            "entry resolution. High in-sample win rates are selection luck. Choosing stop and "
+            "RR afterwards cannot create an edge that the entry does not have.\n\n"
+            "**Türkçe özet:** Test edilen ICT koşulları ve kombinasyonları, bu altı piyasada "
+            "1 saatlik girişle kalıcı olarak yüksek bir kazanma oranı üretmiyor. Örneklem "
+            "içinde %60-65 görünen oranlar şans eseri seçilmiş. Sonradan doğru stop ve RR "
+            "seçmek, girişte olmayan bir avantajı yaratamaz.\n\n")
+
     # ------------------------------------------------------------------ verdict
-    L.append("## 7. Overall conclusion and limits\n\n")
+    L.append("## 8. Overall conclusion and limits\n\n")
     hold = pd.DataFrame([x for d in data.values() for x in d["candidates"]])
     if len(hold):
         agg = hold.groupby("method").agg(rules=("combo", "count"),

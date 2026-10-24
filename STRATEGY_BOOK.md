@@ -585,7 +585,64 @@ Other robust candidates (ranks 2-5):
 
 Verdict: **POSITIVE in the locked holdout and in the search out-of-sample period. Still a single candidate among many tested: treat as a watch-list rule, confirm with live paper trading before risking capital.**
 
-## 7. Overall conclusion and limits
+## 7. High win-rate study (scripts/winrate_search.py)
+
+Question: which combinations have the highest win rate, and can the right stop and RR turn them into profit? Method, using pre-holdout data only:
+
+1. Score every combination by its win rate on a symmetric reference trade (market entry, stop 1 x ATR, target 1 x ATR). A symmetric bracket measures directional skill independent of RR. Rank by the lower 5 % bound of the in-sample win rate (Beta posterior), minimum 60 trades.
+2. For the top 20, test every entry x stop x RR (0.5-6) x management setting and keep the one with the best in-sample expectancy lower bound.
+3. Open the locked 2-year holdout once.
+
+**Is win rate a real, persistent property of a combination?**
+
+| asset | combos scored | base win rate | observed sd | pure-noise sd | implied true-skill sd | top-20 WR in-sample | top-20 WR out-of-sample | top-20 WR holdout |
+|---|---|---|---|---|---|---|---|---|
+| NQ | 11867 | 0.501 | 0.053 | 0.049 | 0.021 | 0.628 | 0.410 | 0.452 |
+| SPX | 5353 | 0.498 | 0.055 | 0.049 | 0.024 | 0.628 | 0.462 | 0.518 |
+| XAU | 17136 | 0.494 | 0.050 | 0.049 | 0.011 | 0.635 | 0.532 | 0.609 |
+| XAG | 45667 | 0.476 | 0.050 | 0.049 | 0.008 | 0.651 | 0.508 | 0.492 |
+| BTC | 14578 | 0.472 | 0.047 | 0.049 | 0.000 | 0.608 | 0.396 | 0.483 |
+| ETH | 7174 | 0.491 | 0.049 | 0.047 | 0.012 | 0.629 | 0.462 | 0.489 |
+
+Reading: the spread of win rates across combinations is almost exactly what pure chance produces (observed sd ~ noise sd). True differences in win rate between combinations are at most about 2 percentage points. The combinations that showed 60-65 % in-sample fall back to roughly the base rate (about 40-53 % out-of-sample, 45-61 % in the holdout).
+
+**Did the best stop/RR make the top-20 profitable in the holdout?**
+
+| asset | rules positive / tested | rules with >=10 holdout trades | of those positive | mean R/trade (>=10 trades) |
+|---|---|---|---|---|
+| NQ | 5/20 | 16 | 4 | -0.139 |
+| SPX | 7/20 | 20 | 7 | -0.036 |
+| XAU | 12/20 | 10 | 4 | -0.091 |
+| XAG | 12/20 | 11 | 5 | 0.011 |
+| BTC | 7/20 | 20 | 7 | -0.037 |
+| ETH | 2/20 | 20 | 2 | -0.206 |
+
+Positive results in the holdout come mostly from rules with very few trades (1-5) and large RR, so they are not evidence. XAU and XAG rose 47 % and 60 % in the holdout, which favours long trades.
+
+**Single conditions: which ones move the win rate?** (all triggers, reference trade, average over the six assets; lift = win rate with the condition minus the base rate)
+
+| factor | lift_is | lift_oos | lift_holdout | holdout_trades |
+|---|---|---|---|---|
+| BIAS_D | 0.012 | -0.001 | 0.014 | 20295 |
+| W_MB | -0.012 | -0.003 | 0.014 | 3539 |
+| H4_PB | -0.001 | 0.015 | 0.013 | 1925 |
+| H4_MSB | 0.007 | -0.002 | 0.009 | 20457 |
+| H1_BB | -0.006 | -0.011 | 0.009 | 2466 |
+| H4_OB | 0.005 | -0.000 | 0.007 | 7170 |
+| W_FVG | 0.001 | -0.004 | -0.019 | 4582 |
+| M_BB | -0.014 | 0.011 | -0.022 | 1376 |
+| D_RB | -0.005 | 0.001 | -0.023 | 3650 |
+| M_FVG | -0.008 | -0.004 | -0.027 | 3167 |
+| D_PB | -0.015 | -0.005 | -0.042 | 1567 |
+| W_BB | 0.025 | -0.016 | -0.106 | 1513 |
+
+No single condition changes the win rate by more than about 1-2 percentage points in a way that holds in-sample, out-of-sample and in the holdout. 1h order blocks as entries are slightly worse than average in all three periods.
+
+**Conclusion of the win-rate study:** none of the tested ICT conditions or their combinations produces a persistently high win rate on these six markets at 1h entry resolution. High in-sample win rates are selection luck. Choosing stop and RR afterwards cannot create an edge that the entry does not have.
+
+**Türkçe özet:** Test edilen ICT koşulları ve kombinasyonları, bu altı piyasada 1 saatlik girişle kalıcı olarak yüksek bir kazanma oranı üretmiyor. Örneklem içinde %60-65 görünen oranlar şans eseri seçilmiş. Sonradan doğru stop ve RR seçmek, girişte olmayan bir avantajı yaratamaz.
+
+## 8. Overall conclusion and limits
 
 All candidates (5 per method per asset) in the locked holdout:
 
