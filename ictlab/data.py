@@ -250,11 +250,11 @@ OANDA_INST = {"NQ": "NAS100_USD", "SPX": "SPX500_USD", "XAU": "XAU_USD"}
 EPSOFT_XAG = ("https://raw.githubusercontent.com/EPSOFT/Database-Currency-Pair/main/XAGUSD/"
               "XAGUSD%20(2007-2023)%20Timeframe%20(5M-H-D-W-M).zip")
 CRYPTO_GH = ("https://media.githubusercontent.com/media/Speirsy11/crypto-dataset/main/data/"
-             "interval_id=1h/symbol_id={sym}/year={y}/month={m:02d}/{sym}-1h-{y}-{m:02d}.parquet")
+             "interval_id={iv}/symbol_id={sym}/year={y}/month={m:02d}/{sym}-{iv}-{y}-{m:02d}.parquet")
 
 
-def minute_to_hour(df: pd.DataFrame) -> pd.DataFrame:
-    g = df.resample("1h", label="left", closed="left")
+def minute_to_hour(df: pd.DataFrame, freq: str = "1h") -> pd.DataFrame:
+    g = df.resample(freq, label="left", closed="left")
     out = pd.DataFrame({"open": g["open"].first(), "high": g["high"].max(),
                         "low": g["low"].min(), "close": g["close"].last(),
                         "volume": g["volume"].sum()})
@@ -277,7 +277,8 @@ def _parallel_get(urls: list[str], workers: int = 8) -> list[bytes | None]:
         return list(ex.map(get, urls))
 
 
-def load_oanda_github(key: str, start_year: int = 2005, end_year: int = 2020) -> pd.DataFrame:
+def load_oanda_github(key: str, start_year: int = 2005, end_year: int = 2020,
+                      freq: str = "1h") -> pd.DataFrame:
     """Oanda 1-minute bars (UTC) from the FutureSharks/financial-data repository."""
     inst = OANDA_INST[key]
     months = [(y, m) for y in range(start_year, end_year + 1) for m in range(1, 13)]
@@ -288,7 +289,7 @@ def load_oanda_github(key: str, start_year: int = 2005, end_year: int = 2020) ->
             continue
         df = pd.read_csv(io.BytesIO(raw))
         df.index = pd.to_datetime(df["time"], utc=True)
-        frames.append(minute_to_hour(df[OHLCV].astype(float)))
+        frames.append(minute_to_hour(df[OHLCV].astype(float), freq))
     if not frames:
         raise RuntimeError(f"no oanda data for {inst}")
     return _finish(pd.concat(frames))
@@ -310,11 +311,11 @@ def load_epsoft_xag() -> pd.DataFrame:
     return _finish(out[out["volume"] > 0])
 
 
-def load_crypto_github(symbol: str, start: str = "2017-08-01") -> pd.DataFrame:
-    """Binance spot 1h candles (UTC) from the Speirsy11/crypto-dataset LFS mirror."""
+def load_crypto_github(symbol: str, start: str = "2017-08-01", interval: str = "1h") -> pd.DataFrame:
+    """Binance spot candles (UTC; 1h, 15m, 5m ...) from the Speirsy11/crypto-dataset mirror."""
     now = datetime.now(timezone.utc)
     months = pd.date_range(start, f"{now:%Y-%m}-01", freq="MS")
-    urls = [CRYPTO_GH.format(sym=symbol, y=m.year, m=m.month) for m in months]
+    urls = [CRYPTO_GH.format(iv=interval, sym=symbol, y=m.year, m=m.month) for m in months]
     frames = []
     for raw in _parallel_get(urls):
         if not raw or raw[:4] != b"PAR1":
