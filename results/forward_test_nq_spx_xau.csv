@@ -1,0 +1,4 @@
+asset,combo,entry,stop,rr,mgmt,data_end,back_trades,back_avg_R,fwd_trades,fwd_win%,fwd_avg_R,fwd_total_R,fwd_1unit_1%,fwd_maxDD_1%,fwd_1unit_2%,fwd_maxDD_2%
+NQ,M:MB | H4:RB | H1:ANYB,market,atr1.5,1.0,be1r,2026-10-23,0,,55,34.5,-0.348,-19.1,0.823,16.8,0.674,31.2
+SPX,D:OB | H4:ANYB | H4:MSB | H1:MB,limit_edge,pattern+0.1atr,3.0,none,2026-10-23,22,0.315,36,13.9,-0.513,-18.5,0.828,18.7,0.68,34.4
+XAU,D:FVG+ANYB | H4:FVG+ANYB | H4:MSB | H1:ANY,market,atr3.0,1.0,none,2026-10-23,18,0.282,24,50.0,-0.039,-0.9,0.99,6.4,0.977,12.6
