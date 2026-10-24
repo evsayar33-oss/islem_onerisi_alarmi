@@ -170,7 +170,21 @@ D (new combos). Each stage was run because the stage before it did not pass.
   not as a timing filter.
 - Live paper trading of Stage B crypto and Stage C2 for at least 100 trades.
 
-## 10. Files
+## 10. Synthesis with quant_lab (2026-10-24)
+
+The owner asked for both labs to be used as one, with the S&P 500 index (not cash) as the benchmark.
+The study is in quant_lab: `lab/synthesis.py`, rules in `config/synthesis.yaml` (pre-registered),
+report `SENTEZ_RAPORU.md`. Input from this repo: all ICT methods above are negative or not significant in the
+locked holdout, so no ICT rule enters the synthesis. Result (rules fixed before the run):
+- No published timing rule passed all 7 checks against the US index over 1928-2026 (68 grid points, 4 time-machine cuts: 0/4).
+- Index + trend-following overlay (AQR TSMOM, 1988-2026) passed 6 of 7 checks and the time machine 2/2;
+  it failed only the luck test (DSR 0.56 < 0.90), and the trend premium fell after 2012 (Sharpe 1.5 -> 0.4).
+- S&P 500 + 10-20% of the H054 crypto trend book passed its own rule in 2018-2026 (CAGR 15.1% -> 17.6-20.0%,
+  drawdown not deeper). Short history; tracked forward in quant_lab `decisions/synthesis/forward.json`.
+Conclusion for this repo: more ICT combination search is not recommended. Order-flow data (section 9) is the only
+open idea with different information.
+
+## 11. Files
 
 | file | content |
 |---|---|

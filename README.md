@@ -1,3 +1,5 @@
+> **İki labın birleşik sonucu (2026-10-24):** quant_lab [`SENTEZ_RAPORU.md`](https://github.com/evsayar33-oss/quant_lab/blob/main/SENTEZ_RAPORU.md) — bu depodaki ICT sonuçları ve quant_lab'ın bütün testleri birlikte; ölçüt S&P 500 endeksinin kendisi (H072).
+
 # islem_onerisi_alarmi — ICT çoklu zaman dilimi konfluens araştırma motoru
 
 > **Tek dosyada tüm sonuçlar:** [`STRATEGY_BOOK.md`](STRATEGY_BOOK.md) — her varlığın seçilen kuralı, kuralların tam tanımları, kilitli 2 yıllık test sonuçları ve 1 birimin büyümesi. Başka bir kişiye veya yapay zekaya gösterilecek dosya budur.
