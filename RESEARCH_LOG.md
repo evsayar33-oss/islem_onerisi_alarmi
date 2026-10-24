@@ -92,6 +92,14 @@ D (new combos). Each stage was run because the stage before it did not pass.
   1h zone, RR 2: 40 holdout trades, +0.167 R. Pooled crypto +0.086 R, t 0.52.
   Positive sign, but far from t >= 2. Not a proven edge.
 
+- **Run of all six assets (2026-10-24).** `stage_b_ltf_entry.py BTC ETH NQ SPX XAU XAG`
+  ran to the end. The 15m series of NQ, SPX, XAU end on 2020-05-14 and XAG on
+  2023-04-03, so these four assets have **0 holdout bars and 0 holdout trades**.
+  The verdict (88 trades, +0.086 R, t 0.52, 2/6 assets listed, positive=False)
+  comes from BTC and ETH only. It is not a test of the four missing assets.
+  The minute download covers only about 50-75 of 672 days per asset (rate limit),
+  so the result for these four assets stays open.
+
 ## 6. Stage C - news and macro calendar (`scripts/stage_c_macro.py`)
 - Events: 511 CPI and NFP (08:30 NY) and FOMC (14:00 NY) dates,
   `data/macro/release_dates.json`.
