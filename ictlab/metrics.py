@@ -1,0 +1,83 @@
+"""Performance statistics, multiple-testing control and empirical-Bayes shrinkage."""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+from scipy.stats import norm
+
+EULER_GAMMA = 0.5772156649015329
+
+
+def _part(df: pd.DataFrame, sfx: str) -> pd.DataFrame:
+    n = df[f"n_{sfx}"]
+    s, s2 = df[f"sum_{sfx}"], df[f"sum2_{sfx}"]
+    mean = s / n.where(n > 0)
+    var = (s2 - n * mean ** 2) / (n - 1).where(n > 1)
+    sd = np.sqrt(var.clip(lower=1e-12))
+    return pd.DataFrame({
+        f"exp_{sfx}": mean,
+        f"sd_{sfx}": sd,
+        f"wr_{sfx}": df[f"win_{sfx}"] / n.where(n > 0),
+        f"pf_{sfx}": df[f"gw_{sfx}"] / df[f"gl_{sfx}"].where(df[f"gl_{sfx}"] > 0),
+        f"sr_{sfx}": mean / sd,
+        f"t_{sfx}": mean / sd * np.sqrt(n),
+    })
+
+
+def enrich(df: pd.DataFrame, years_is: float, years_oos: float, n_trials: int | None = None
+           ) -> pd.DataFrame:
+    df = pd.concat([df, _part(df, "is"), _part(df, "oos")], axis=1)
+    n_all = df["n_is"] + df["n_oos"]
+    df["n_all"] = n_all
+    df["exp_all"] = (df["sum_is"] + df["sum_oos"]) / n_all
+    df["total_r"] = df["sum_is"] + df["sum_oos"]
+    df["tpy_is"] = df["n_is"] / max(years_is, 1e-9)
+    df["ann_sr_is"] = df["sr_is"] * np.sqrt(df["tpy_is"])
+    df["mar_is"] = (df["sum_is"] / max(years_is, 1e-9)) / df["dd_is"].clip(lower=1.0)
+    w = df["w_sum"].where(df["w_sum"] > 0)
+    df["exp_recent"] = df["w_sumr"] / w
+
+    # Empirical Bayes (normal-normal) shrinkage of IS expectancy towards the grand mean.
+    ok = df["n_is"] >= 10
+    se2 = (df["sd_is"] ** 2) / df["n_is"].where(df["n_is"] > 0)
+    mu0 = float(np.average(df.loc[ok, "exp_is"], weights=1 / se2[ok])) if ok.any() else 0.0
+    tau2 = float(max(df.loc[ok, "exp_is"].var() - se2[ok].mean(), 1e-6)) if ok.sum() > 2 else 1e-2
+    wgt = tau2 / (tau2 + se2)
+    df["exp_shrunk"] = wgt * df["exp_is"] + (1 - wgt) * mu0
+    df["post_sd"] = np.sqrt(wgt * se2)
+    df["score"] = df["exp_shrunk"] - 1.645 * df["post_sd"]
+    df.attrs["eb_mu0"], df.attrs["eb_tau2"] = mu0, tau2
+
+    # Deflated Sharpe ratio (Bailey & Lopez de Prado), per-trade Sharpe on IS.
+    trials = n_trials or int(ok.sum())
+    sr_var = float(df.loc[ok, "sr_is"].var()) if ok.sum() > 2 else 0.0
+    if trials > 1 and sr_var > 0:
+        sr0 = np.sqrt(sr_var) * ((1 - EULER_GAMMA) * norm.ppf(1 - 1 / trials)
+                                 + EULER_GAMMA * norm.ppf(1 - 1 / (trials * np.e)))
+    else:
+        sr0 = 0.0
+    sr = df["sr_is"]
+    denom = np.sqrt(1 + 0.5 * sr ** 2)
+    df["psr_is"] = norm.cdf(sr * np.sqrt((df["n_is"] - 1).clip(lower=1)) / denom)
+    df["dsr_is"] = norm.cdf((sr - sr0) * np.sqrt((df["n_is"] - 1).clip(lower=1)) / denom)
+    df.attrs["sr0"] = sr0
+    df.attrs["trials"] = trials
+    return df
+
+
+def neighbour_stability(df: pd.DataFrame, cfgs: pd.DataFrame) -> pd.Series:
+    """Mean shrunk expectancy of the adjacent RR configs (same combo/entry/stop/mgmt).
+
+    A real edge does not vanish when RR moves one notch; a curve-fit one does.
+    """
+    key = df[["combo_id", "cfg"]].join(cfgs[["e", "s", "r", "m"]], on="cfg")
+    key["val"] = df["exp_shrunk"].to_numpy()
+    lut = key.set_index(["combo_id", "e", "s", "r", "m"])["val"]
+    res = np.full(len(key), np.nan)
+    for d in (-1, 1):
+        probe = pd.MultiIndex.from_arrays([key["combo_id"], key["e"], key["s"], key["r"] + d,
+                                           key["m"]])
+        v = lut.reindex(probe).to_numpy()
+        res = np.where(np.isnan(res), v, np.where(np.isnan(v), res, (res + v) / 2))
+    return pd.Series(res, index=df.index)
