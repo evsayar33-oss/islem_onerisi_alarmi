@@ -184,6 +184,10 @@ locked holdout, so no ICT rule enters the synthesis. Result (rules fixed before 
 Conclusion for this repo: more ICT combination search is not recommended. Order-flow data (section 9) is the only
 open idea with different information.
 
+## 10b. Per-asset book (2026-10-24)
+
+quant_lab H073 tested every rule, Fibonacci premium/discount entries and ICT combos per asset (29,912 trials): nothing passed. The fixed H054 core rule passed on BTC, ETH and SOL. See quant_lab `VARLIK_STRATEJI_KITABI.md`.
+
 ## 11. Files
 
 | file | content |
