@@ -45,10 +45,10 @@ def pending_setups(prep: dict, ranked: pd.DataFrame, top_k: int = 10,
     recent = np.nonzero(tr.t >= last - p.limit_valid_bars)[0]
     out = []
     for _, row in best.iterrows():
-        mask, et = int(row["mask"]), int(row["etype"])
+        mask, km = int(row["mask"]), int(row["kmask"])
         mode = row["entry"]
         for i in recent:
-            if (int(tr.bits[i]) & mask) != mask or (et != 2 and int(tr.kind[i]) != et):
+            if (int(tr.bits[i]) & mask) != mask or not (1 << int(tr.kind[i])) & km:
                 continue
             t, d = int(tr.t[i]), int(tr.dir[i])
             if tr.inv[i] <= last:

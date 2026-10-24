@@ -25,8 +25,13 @@ def _part(df: pd.DataFrame, sfx: str) -> pd.DataFrame:
     })
 
 
-def enrich(df: pd.DataFrame, years_is: float, years_oos: float, n_trials: int | None = None
-           ) -> pd.DataFrame:
+def enrich(df: pd.DataFrame, years_is: float, years_oos: float, n_trials: int | None = None,
+           prior: dict | None = None, n_eff: int | None = None) -> pd.DataFrame:
+    """Adds performance columns, EB shrinkage and deflated Sharpe.
+
+    `prior` (from `combos.prior_from_moments`) carries the grand mean, between-trial
+    variance and SR variance over *all* trials; without it they come from `df`.
+    """
     df = pd.concat([df, _part(df, "is"), _part(df, "oos")], axis=1)
     n_all = df["n_is"] + df["n_oos"]
     df["n_all"] = n_all
@@ -40,44 +45,59 @@ def enrich(df: pd.DataFrame, years_is: float, years_oos: float, n_trials: int | 
 
     # Empirical Bayes (normal-normal) shrinkage of IS expectancy towards the grand mean.
     ok = df["n_is"] >= 10
-    se2 = (df["sd_is"] ** 2) / df["n_is"].where(df["n_is"] > 0)
-    mu0 = float(np.average(df.loc[ok, "exp_is"], weights=1 / se2[ok])) if ok.any() else 0.0
-    tau2 = float(max(df.loc[ok, "exp_is"].var() - se2[ok].mean(), 1e-6)) if ok.sum() > 2 else 1e-2
+    se2 = (df["sd_is"].clip(lower=0.5) ** 2) / df["n_is"].where(df["n_is"] > 0)
+    if prior is not None:
+        mu0, tau2 = prior["mu0"], prior["tau2"]
+    else:
+        mu0 = float(np.average(df.loc[ok, "exp_is"], weights=1 / se2[ok])) if ok.any() else 0.0
+        tau2 = float(max(df.loc[ok, "exp_is"].var() - se2[ok].mean(), 1e-6)) \
+            if ok.sum() > 2 else 1e-2
     wgt = tau2 / (tau2 + se2)
     df["exp_shrunk"] = wgt * df["exp_is"] + (1 - wgt) * mu0
     df["post_sd"] = np.sqrt(wgt * se2)
     df["score"] = df["exp_shrunk"] - 1.645 * df["post_sd"]
     df.attrs["eb_mu0"], df.attrs["eb_tau2"] = mu0, tau2
 
-    # Deflated Sharpe ratio (Bailey & Lopez de Prado), per-trade Sharpe on IS.
+    # Multiple-testing deflation in t-stat space (see t_hurdle / full_sample).
     trials = n_trials or int(ok.sum())
-    sr_var = float(df.loc[ok, "sr_is"].var()) if ok.sum() > 2 else 0.0
-    if trials > 1 and sr_var > 0:
-        sr0 = np.sqrt(sr_var) * ((1 - EULER_GAMMA) * norm.ppf(1 - 1 / trials)
-                                 + EULER_GAMMA * norm.ppf(1 - 1 / (trials * np.e)))
-    else:
-        sr0 = 0.0
     sr = df["sr_is"]
     denom = np.sqrt(1 + 0.5 * sr ** 2)
     df["psr_is"] = norm.cdf(sr * np.sqrt((df["n_is"] - 1).clip(lower=1)) / denom)
-    df["dsr_is"] = norm.cdf((sr - sr0) * np.sqrt((df["n_is"] - 1).clip(lower=1)) / denom)
-    df.attrs["sr0"] = sr0
+    t0 = t_hurdle(n_eff or trials)
+    df["dsr_is"] = norm.cdf(df["t_is"] - t0)
+    df.attrs["t_hurdle"] = t0
     df.attrs["trials"] = trials
     return df
 
 
-def neighbour_stability(df: pd.DataFrame, cfgs: pd.DataFrame) -> pd.Series:
-    """Mean shrunk expectancy of the adjacent RR configs (same combo/entry/stop/mgmt).
+def t_hurdle(n_eff: int) -> float:
+    """Expected maximum t-statistic of n_eff independent null trials (Bailey/LdP)."""
+    if n_eff <= 1:
+        return 0.0
+    return float((1 - EULER_GAMMA) * norm.ppf(1 - 1 / n_eff)
+                 + EULER_GAMMA * norm.ppf(1 - 1 / (n_eff * np.e)))
 
-    A real edge does not vanish when RR moves one notch; a curve-fit one does.
+
+def full_sample(df: pd.DataFrame, n_eff: int) -> pd.DataFrame:
+    """Whole-period statistics and a multiple-testing-deflated significance.
+
+    `dsr_all` = P(true edge > the luckiest of n_eff null trials), computed in
+    t-stat space so trials with different sample sizes are comparable. The configs
+    of one combo share trades, so n_eff = number of distinct combos.
     """
-    key = df[["combo_id", "cfg"]].join(cfgs[["e", "s", "r", "m"]], on="cfg")
-    key["val"] = df["exp_shrunk"].to_numpy()
-    lut = key.set_index(["combo_id", "e", "s", "r", "m"])["val"]
-    res = np.full(len(key), np.nan)
-    for d in (-1, 1):
-        probe = pd.MultiIndex.from_arrays([key["combo_id"], key["e"], key["s"], key["r"] + d,
-                                           key["m"]])
-        v = lut.reindex(probe).to_numpy()
-        res = np.where(np.isnan(res), v, np.where(np.isnan(v), res, (res + v) / 2))
-    return pd.Series(res, index=df.index)
+    n = df["n_is"] + df["n_oos"]
+    s = df["sum_is"] + df["sum_oos"]
+    s2 = df["sum2_is"] + df["sum2_oos"]
+    mean = s / n.where(n > 0)
+    sd = np.sqrt(((s2 - n * mean ** 2) / (n - 1).where(n > 1)).clip(lower=1e-12))
+    out = df.copy()
+    out["sd_all"] = sd
+    out["t_all"] = mean / sd * np.sqrt(n)
+    gl = df["gl_is"] + df["gl_oos"]
+    out["pf_all"] = (df["gw_is"] + df["gw_oos"]) / gl.where(gl > 0)
+    out["wr_all"] = (df["win_is"] + df["win_oos"]) / n.where(n > 0)
+    t0 = t_hurdle(n_eff)
+    out["dsr_all"] = norm.cdf(out["t_all"] - t0)
+    out.attrs.update(df.attrs)
+    out.attrs["t_hurdle"] = t0
+    return out

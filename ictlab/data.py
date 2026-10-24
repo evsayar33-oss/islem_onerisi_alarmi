@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import io
 import lzma
-import struct
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -190,6 +190,102 @@ def load_github_xau() -> pd.DataFrame:
     return _finish(out[out.index.notna()])
 
 
+# --------------------------------------------------------------------------- github mirrors
+# Public GitHub-hosted copies used when the primary feeds are unreachable.
+OANDA_GH = ("https://raw.githubusercontent.com/FutureSharks/financial-data/master/"
+            "pyfinancialdata/data/currencies/oanda")
+OANDA_INST = {"NQ": "NAS100_USD", "SPX": "SPX500_USD", "XAU": "XAU_USD"}
+EPSOFT_XAG = ("https://raw.githubusercontent.com/EPSOFT/Database-Currency-Pair/main/XAGUSD/"
+              "XAGUSD%20(2007-2023)%20Timeframe%20(5M-H-D-W-M).zip")
+CRYPTO_GH = ("https://media.githubusercontent.com/media/Speirsy11/crypto-dataset/main/data/"
+             "interval_id=1h/symbol_id={sym}/year={y}/month={m:02d}/{sym}-1h-{y}-{m:02d}.parquet")
+
+
+def minute_to_hour(df: pd.DataFrame) -> pd.DataFrame:
+    g = df.resample("1h", label="left", closed="left")
+    out = pd.DataFrame({"open": g["open"].first(), "high": g["high"].max(),
+                        "low": g["low"].min(), "close": g["close"].last(),
+                        "volume": g["volume"].sum()})
+    return out.dropna(subset=["open"])
+
+
+def _parallel_get(urls: list[str], workers: int = 8) -> list[bytes | None]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def get(u):
+        for attempt in range(4):
+            try:
+                return _http_get(u, timeout=120)
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(2 ** attempt)
+
+    with ThreadPoolExecutor(workers) as ex:
+        return list(ex.map(get, urls))
+
+
+def load_oanda_github(key: str, start_year: int = 2005, end_year: int = 2020) -> pd.DataFrame:
+    """Oanda 1-minute bars (UTC) from the FutureSharks/financial-data repository."""
+    inst = OANDA_INST[key]
+    months = [(y, m) for y in range(start_year, end_year + 1) for m in range(1, 13)]
+    urls = [f"{OANDA_GH}/{inst}/{y}/oanda-{inst}-{y}-{m}.csv" for y, m in months]
+    frames = []
+    for raw in _parallel_get(urls):
+        if not raw:
+            continue
+        df = pd.read_csv(io.BytesIO(raw))
+        df.index = pd.to_datetime(df["time"], utc=True)
+        frames.append(minute_to_hour(df[OHLCV].astype(float)))
+    if not frames:
+        raise RuntimeError(f"no oanda data for {inst}")
+    return _finish(pd.concat(frames))
+
+
+def load_epsoft_xag() -> pd.DataFrame:
+    """Dukascopy XAGUSD 1h export (2007-2023, fixed GMT-5 stamps) from EPSOFT."""
+    raw = _http_get(EPSOFT_XAG, timeout=300)
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        name = next(n for n in z.namelist()
+                    if "1_Hour" in n and n.endswith(".csv") and not n.startswith("__MACOSX"))
+        df = pd.read_csv(z.open(name))
+    ts = pd.to_datetime(df["Local time"].str.replace(r"\.000 GMT", "", regex=True),
+                        format="%d.%m.%Y %H:%M:%S%z", utc=True)
+    out = pd.DataFrame({"open": df["Open"].values, "high": df["High"].values,
+                        "low": df["Low"].values, "close": df["Close"].values,
+                        "volume": df["Volume"].values}, index=pd.DatetimeIndex(ts))
+    # Dukascopy exports carry flat zero-volume bars over weekends and holidays.
+    return _finish(out[out["volume"] > 0])
+
+
+def load_crypto_github(symbol: str, start: str = "2017-08-01") -> pd.DataFrame:
+    """Binance spot 1h candles (UTC) from the Speirsy11/crypto-dataset LFS mirror."""
+    now = datetime.now(timezone.utc)
+    months = pd.date_range(start, f"{now:%Y-%m}-01", freq="MS")
+    urls = [CRYPTO_GH.format(sym=symbol, y=m.year, m=m.month) for m in months]
+    frames = []
+    for raw in _parallel_get(urls):
+        if not raw or raw[:4] != b"PAR1":
+            continue
+        df = pd.read_parquet(io.BytesIO(raw))
+        df.index = pd.to_datetime(df["timestamp"], utc=True)
+        frames.append(df[OHLCV].astype(float))
+    if not frames:
+        raise RuntimeError(f"no crypto data for {symbol}")
+    return _finish(pd.concat(frames))
+
+
+def load_github(key: str) -> pd.DataFrame:
+    if key in OANDA_INST:
+        return load_oanda_github(key)
+    if key == "XAG":
+        return load_epsoft_xag()
+    spec = ASSETS[key]
+    if spec.binance:
+        return load_crypto_github(spec.binance)
+    raise ValueError(f"no github mirror for {key}")
+
+
 # --------------------------------------------------------------------------- facade
 def load_asset(key: str, source: str = "auto", refresh: bool = False,
                csv_path: str | None = None, start: str = "2012-01-01") -> pd.DataFrame:
@@ -204,6 +300,8 @@ def load_asset(key: str, source: str = "auto", refresh: bool = False,
         df = load_csv(csv_path, tz="UTC")
     elif source == "github_xau":
         df = load_github_xau()
+    elif source == "github":
+        df = load_github(key)
     elif source == "yahoo":
         df = load_yahoo(spec.yahoo)
     elif source == "dukascopy" or (source == "auto" and spec.dukascopy):

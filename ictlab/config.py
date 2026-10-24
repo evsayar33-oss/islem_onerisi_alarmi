@@ -21,11 +21,11 @@ class AssetSpec:
 
 
 ASSETS: dict[str, AssetSpec] = {
-    "NQ": AssetSpec("NQ", "Nasdaq 100", "America/New_York", 18, 1.0,
+    "NQ": AssetSpec("NQ", "Nasdaq 100", "America/New_York", 18, 2.0,
                     dukascopy="USATECHIDXUSD", yahoo="NQ=F"),
-    "SPX": AssetSpec("SPX", "S&P 500", "America/New_York", 18, 1.0,
+    "SPX": AssetSpec("SPX", "S&P 500", "America/New_York", 18, 2.0,
                      dukascopy="USA500IDXUSD", yahoo="ES=F"),
-    "XAU": AssetSpec("XAU", "Gold", "America/New_York", 18, 2.0,
+    "XAU": AssetSpec("XAU", "Gold", "America/New_York", 18, 3.0,
                      dukascopy="XAUUSD", yahoo="GC=F"),
     "XAG": AssetSpec("XAG", "Silver", "America/New_York", 18, 8.0,
                      dukascopy="XAGUSD", yahoo="SI=F"),
@@ -36,18 +36,36 @@ ASSETS: dict[str, AssetSpec] = {
 }
 
 # Timeframe roles requested by the research plan.
-#   1M : liquidity, order blocks, FVG
-#   1W : FVG, order blocks
-#   1D : FVG, order blocks
-#   4H : market structure break, FVG, order blocks
-#   1H : FVG / order block entry
-CONDITIONS: tuple[str, ...] = (
-    "M_LIQ", "M_FVG", "M_OB",
-    "W_FVG", "W_OB",
-    "D_FVG", "D_OB",
-    "H4_MSB", "H4_FVG", "H4_OB",
-)
-ENTRY_TYPES: tuple[str, ...] = ("FVG", "OB", "ANY")
+#   1M : liquidity + FVG + every block type
+#   1W : FVG + every block type
+#   1D : FVG + every block type
+#   4H : market structure break + FVG + every block type
+#   1H : entry on an FVG or any block type
+HTF: tuple[str, ...] = ("M", "W", "D", "H4")
+ZONE_TYPES: tuple[str, ...] = ("FVG", "OB", "BB", "MB", "RB", "PB", "VB")
+BLOCK_TYPES: tuple[str, ...] = ZONE_TYPES[1:]
+# Condition bits: 8 per HTF (7 zone types + ANYB = any block), then M_LIQ, H4_MSB.
+CONDITIONS: tuple[str, ...] = tuple(
+    [f"{tf}_{z}" for tf in HTF for z in (*ZONE_TYPES, "ANYB")] + ["M_LIQ", "H4_MSB"])
+BIT = {name: i for i, name in enumerate(CONDITIONS)}
+# Entry filters over the 1h trigger kind (index into ZONE_TYPES) as kind bitmasks.
+ENTRY_FILTERS: dict[str, int] = {
+    **{z: 1 << i for i, z in enumerate(ZONE_TYPES)},
+    "ANYB": sum(1 << i for i in range(1, len(ZONE_TYPES))),
+    "ANY": (1 << len(ZONE_TYPES)) - 1,
+}
+ENTRY_TYPES: tuple[str, ...] = tuple(ENTRY_FILTERS)
+
+
+def slot_options(tf: str) -> list[tuple[str, int]]:
+    """Choices for one HTF slot: none, one zone type, any block, FVG inside a block."""
+    b = lambda name: 1 << BIT[f"{tf}_{name}"]  # noqa: E731
+    opts = [("-", 0)]
+    opts += [(z, b(z)) for z in ZONE_TYPES]
+    opts.append(("ANYB", b("ANYB")))
+    opts += [(f"FVG+{k}", b("FVG") | b(k)) for k in BLOCK_TYPES]
+    opts.append(("FVG+ANYB", b("FVG") | b("ANYB")))
+    return opts
 
 
 @dataclass(frozen=True)
@@ -83,6 +101,8 @@ class ResearchParams:
     atr_len: int = 14
     fvg_min_atr: float = 0.10  # minimum FVG height in ATR of its own timeframe
     swing_k: int = 2  # fractal half-width used for swings / MSB / OB
+    rejection_wick: float = 0.5  # rejection block: wick share of the candle range
+    vacuum_gap_atr: float = 0.25  # vacuum block: minimum open gap in ATR
     zone_max_age: dict[str, int] = field(default_factory=lambda: {
         "M": 36, "W": 104, "D": 250, "H4": 360, "H1": 0,
     })

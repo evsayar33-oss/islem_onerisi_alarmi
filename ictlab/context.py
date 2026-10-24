@@ -9,10 +9,8 @@ import pandas as pd
 from numba import njit
 
 from . import features as F
-from .config import CONDITIONS, AssetSpec, ResearchParams
+from .config import BIT, BLOCK_TYPES, CONDITIONS, HTF, ZONE_TYPES, AssetSpec, ResearchParams
 from .data import resample_all
-
-TF_OF = {"M": "M", "W": "W", "D": "D", "H4": "H4"}
 
 
 @dataclass
@@ -32,38 +30,51 @@ class Triggers:
     hi: np.ndarray
     ext: np.ndarray  # pattern extreme (stop reference)
     inv: np.ndarray  # 1h bar at which the entry zone is invalidated
-    kind: np.ndarray  # 0 = FVG, 1 = OB
+    kind: np.ndarray  # index into ZONE_TYPES
     bits: np.ndarray  # condition bitmask, bit i -> CONDITIONS[i]
 
 
 def _project(bar, inv, close_idx, max_age, n1):
     """Map HTF zone lifetimes onto the 1h stream."""
     nh = close_idx.size
-    vis_from = close_idx[bar]
+    if bar.size == 0:
+        e = np.empty(0, np.int64)
+        return e, e
+    vis_from = close_idx[np.minimum(bar, nh - 1)]
     end = np.minimum(inv, bar + max_age if max_age > 0 else nh)
     vis_to = np.where(end >= nh, n1, close_idx[np.minimum(end, nh - 1)])
     return vis_from.astype(np.int64), vis_to.astype(np.int64)
 
 
+def _ohlc(df: pd.DataFrame):
+    return tuple(df[k].to_numpy(np.float64) for k in ("open", "high", "low", "close"))
+
+
 def build_zones(tf_df: pd.DataFrame, close_idx: np.ndarray, n1: int, p: ResearchParams,
-                tf: str) -> tuple[Zones, Zones, tuple[np.ndarray, np.ndarray]]:
-    o, h, l, c = (tf_df[k].to_numpy(np.float64) for k in ("open", "high", "low", "close"))
+                tf: str) -> tuple[dict, tuple[np.ndarray, np.ndarray]]:
+    o, h, l, c = _ohlc(tf_df)
     a = F.atr(h, l, c, p.atr_len)
-    fb, fd, flo, fhi, _, finv = F.detect_fvg(h, l, c, a, p.fvg_min_atr)
-    mb, md, ob, od, olo, ohi, _, oinv = F.detect_structure(o, h, l, c, p.swing_k, 20)
+    det = F.detect_all(o, h, l, c, a, p)
     age = p.zone_max_age[tf]
-    fv0, fv1 = _project(fb, finv, close_idx, age, n1)
-    ov0, ov1 = _project(ob, oinv, close_idx, age, n1)
-    return (Zones(fv0, fv1, fd, flo, fhi), Zones(ov0, ov1, od, olo, ohi),
-            (close_idx[mb] if mb.size else mb, md))
+    zones = {}
+    for z, (bar, dr, lo, hi, _, inv) in det.items():
+        v0, v1 = _project(bar, inv, close_idx, age, n1)
+        zones[z] = Zones(v0, v1, dr, lo, hi)
+    mb, md, *_ = F.detect_structure(o, h, l, c, p.swing_k, 20)
+    msb = (close_idx[mb] if mb.size else mb, md)
+    return zones, msb
 
 
 @njit(cache=True)
 def match_zones(tt, td, tlo, thi, zf, zt, zd, zlo, zhi, inside):
     out = np.zeros(tt.size, np.bool_)
+    if zf.size == 0:
+        return out
+    # zones sorted by vis_from: only those already visible are scanned
     for i in range(tt.size):
-        for z in range(zf.size):
-            if zd[z] != td[i] or zf[z] > tt[i] or zt[z] <= tt[i]:
+        hi_z = np.searchsorted(zf, tt[i], side="right")
+        for z in range(hi_z - 1, -1, -1):
+            if zd[z] != td[i] or zt[z] <= tt[i]:
                 continue
             if inside:
                 tol = 0.05 * (zhi[z] - zlo[z])
@@ -86,7 +97,6 @@ def msb_state(tt, td, msb_vis, msb_dir, h4_close_idx, max_age):
             j += 1
         if j < 0 or msb_dir[j] != td[i]:
             continue
-        # age in 4H bars between the MSB bar and the last closed 4H bar
         b_msb = np.searchsorted(h4_close_idx, msb_vis[j])
         b_now = np.searchsorted(h4_close_idx, tt[i], side="right") - 1
         out[i] = (b_now - b_msb) <= max_age
@@ -98,10 +108,12 @@ def prev_month_levels(mtf: dict, n1: int) -> tuple[np.ndarray, np.ndarray]:
     close_idx = mtf["close_idx"]
     mh = mtf["df"]["high"].to_numpy()
     ml = mtf["df"]["low"].to_numpy()
-    month_of = np.searchsorted(close_idx, np.arange(n1), side="left")  # bucket of bar
+    month_of = np.searchsorted(close_idx, np.arange(n1), side="left")
     prev = month_of - 1
-    plo = np.where(prev >= 0, ml[np.clip(prev, 0, None)], np.nan)
-    phi = np.where(prev >= 0, mh[np.clip(prev, 0, None)], np.nan)
+    ok = (prev >= 0) & (prev < mh.size)
+    pc = np.clip(prev, 0, max(mh.size - 1, 0))
+    plo = np.where(ok, ml[pc], np.nan)
+    phi = np.where(ok, mh[pc], np.nan)
     return plo, phi
 
 
@@ -114,37 +126,39 @@ class AssetContext:
     swing_lo: np.ndarray
     swing_hi: np.ndarray
     trig: Triggers
-    zones: dict  # (tf, "FVG"/"OB") -> Zones
+    zones: dict  # (tf, type) -> Zones
     liq: tuple[np.ndarray, np.ndarray]
     msb4: tuple[np.ndarray, np.ndarray]
+
+
+def build_triggers(h1: pd.DataFrame, a1: np.ndarray, p: ResearchParams) -> Triggers:
+    o, h, l, c = _ohlc(h1)
+    det = F.detect_all(o, h, l, c, a1, p)
+    parts = [(ZONE_TYPES.index(z), det[z]) for z in ZONE_TYPES]
+    t = np.concatenate([d[0] for _, d in parts])
+    order = np.argsort(t, kind="stable")
+    cat = lambda i: np.concatenate([d[i] for _, d in parts])[order]  # noqa: E731
+    kind = np.concatenate([np.full(d[0].size, k, np.int64) for k, d in parts])[order]
+    return Triggers(t=t[order], dir=cat(1), lo=cat(2), hi=cat(3), ext=cat(4), inv=cat(5),
+                    kind=kind, bits=np.zeros(t.size, np.int64))
 
 
 def build_context(h1: pd.DataFrame, spec: AssetSpec, p: ResearchParams) -> AssetContext:
     tfs = resample_all(h1, spec)
     n1 = len(h1)
-    o, h, l, c = (h1[k].to_numpy(np.float64) for k in ("open", "high", "low", "close"))
+    o, h, l, c = _ohlc(h1)
     a1 = F.atr(h, l, c, p.atr_len)
     sh_p, _, sl_p, _ = F.swings_asof(h, l, p.swing_k)
-
-    # 1h entry triggers
-    fb, fd, flo, fhi, fext, finv = F.detect_fvg(h, l, c, a1, p.fvg_min_atr)
-    _, _, ob, od, olo, ohi, oext, oinv = F.detect_structure(o, h, l, c, p.swing_k, 20)
-    t = np.concatenate([fb, ob])
-    order = np.argsort(t, kind="stable")
-    trig = Triggers(
-        t=t[order], dir=np.concatenate([fd, od])[order],
-        lo=np.concatenate([flo, olo])[order], hi=np.concatenate([fhi, ohi])[order],
-        ext=np.concatenate([fext, oext])[order], inv=np.concatenate([finv, oinv])[order],
-        kind=np.concatenate([np.zeros(fb.size, np.int64), np.ones(ob.size, np.int64)])[order],
-        bits=np.zeros(t.size, np.int64),
-    )
+    trig = build_triggers(h1, a1, p)
 
     zones = {}
     msb4 = (np.empty(0, np.int64), np.empty(0, np.int64))
-    for tf in ("M", "W", "D", "H4"):
-        fz, oz, msb = build_zones(tfs[tf]["df"], tfs[tf]["close_idx"], n1, p, tf)
-        zones[(tf, "FVG")] = fz
-        zones[(tf, "OB")] = oz
+    for tf in HTF:
+        zs, msb = build_zones(tfs[tf]["df"], tfs[tf]["close_idx"], n1, p, tf)
+        for z, v in zs.items():
+            srt = np.argsort(v.vis_from, kind="stable")
+            zones[(tf, z)] = Zones(v.vis_from[srt], v.vis_to[srt], v.dir[srt], v.lo[srt],
+                                   v.hi[srt])
         if tf == "H4":
             msb4 = msb
 
@@ -153,17 +167,23 @@ def build_context(h1: pd.DataFrame, spec: AssetSpec, p: ResearchParams) -> Asset
 
     inside = p.overlap_mode == "inside"
     bits = np.zeros(trig.t.size, np.int64)
-    for bi, name in enumerate(CONDITIONS):
-        if name == "M_LIQ":
-            ok = np.where(trig.dir == 1, la[trig.t], sa[trig.t])
-        elif name == "H4_MSB":
-            ok = msb_state(trig.t, trig.dir, msb4[0], msb4[1], tfs["H4"]["close_idx"],
-                           p.msb_max_age_h4)
-        else:
-            tf, kind = name.split("_")
-            z = zones[(tf, kind)]
-            ok = match_zones(trig.t, trig.dir, trig.lo, trig.hi, z.vis_from, z.vis_to,
-                             z.dir, z.lo, z.hi, inside)
-        bits |= ok.astype(np.int64) << bi
+    for tf in HTF:
+        anyb = np.zeros(trig.t.size, np.bool_)
+        for z in ZONE_TYPES:
+            zz = zones[(tf, z)]
+            ok = match_zones(trig.t, trig.dir, trig.lo, trig.hi, zz.vis_from, zz.vis_to,
+                             zz.dir, zz.lo, zz.hi, inside)
+            bits |= ok.astype(np.int64) << BIT[f"{tf}_{z}"]
+            if z in BLOCK_TYPES:
+                anyb |= ok
+        bits |= anyb.astype(np.int64) << BIT[f"{tf}_ANYB"]
+    liq = np.where(trig.dir == 1, la[trig.t], sa[trig.t])
+    bits |= liq.astype(np.int64) << BIT["M_LIQ"]
+    msb = msb_state(trig.t, trig.dir, msb4[0], msb4[1], tfs["H4"]["close_idx"], p.msb_max_age_h4)
+    bits |= msb.astype(np.int64) << BIT["H4_MSB"]
     trig.bits = bits
     return AssetContext(spec.key, h1, tfs, a1, sl_p, sh_p, trig, zones, (la, sa), msb4)
+
+
+def condition_rates(trig: Triggers) -> dict[str, float]:
+    return {c: float(((trig.bits >> i) & 1).mean()) for i, c in enumerate(CONDITIONS)}

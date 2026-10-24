@@ -25,7 +25,7 @@ import pandas as pd
 from .combos import replay_trades
 
 KB_DIR = Path(__file__).resolve().parent.parent / "results" / "knowledge"
-KEY = ["asset", "mask", "etype", "cfg"]
+KEY = ["asset", "mask", "kmask", "cfg"]
 FWD_HALFLIFE_DAYS = 365.0
 PRIOR_WEIGHT_TRADES = 200.0
 
@@ -66,7 +66,7 @@ class KnowledgeBase:
             since = pd.to_datetime(grp["counted_until"], utc=True).min()
             rec = grp.iloc[-1]
             tr = replay_trades(prep["ctx"], prep["R"], prep["XB"], prep["FB"], int(rec["mask"]),
-                               int(rec["etype"]), int(rec["cfg"]), int(rec["e"]))
+                               int(rec["kmask"]), int(rec["cfg"]), int(rec["e"]))
             new = tr[tr["entry_time"] > since]
             if len(new):
                 self._add_forward(rec, new["R"].to_numpy(), data_end)

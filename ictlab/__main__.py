@@ -17,7 +17,7 @@ from .config import ASSETS, ResearchParams
 from .data import load_asset
 from .learner import KnowledgeBase
 from .report import build_report
-from .research import RESULTS, cross_asset, placebo_test, walk_forward, walk_forward_summary
+from .research import RESULTS, cross_asset, placebo_test
 from .research import evaluate, prepare, run_asset
 from .scanner import notify, pending_setups, save
 
@@ -54,16 +54,14 @@ def cmd_research(a) -> None:
         except FileNotFoundError:
             missing[k] = "no cached data; run `python -m ictlab fetch` first"
             continue
-        res = run_asset(k, h1, p)
+        res = run_asset(k, h1, p, folds=a.folds)
         kb.ingest(res)
         kb.calibrate(k)
         ranked = kb.rank(res["grid"], k)
         res["grid"] = ranked
         kb.record(ranked, k, h1.index[-1], run_id)
-        if a.folds:
-            w = walk_forward(res, folds=a.folds)
-            w.to_csv(RESULTS / f"{k}_walkforward.csv", index=False)
-            wf[k] = walk_forward_summary(w)
+        if res["meta"]["walk_forward"]:
+            wf[k] = res["meta"]["walk_forward"]
         if a.placebo:
             placebo[k] = placebo_test(k, h1, p, runs=a.placebo, folds=a.folds or 5)
             placebo[k].to_csv(RESULTS / f"{k}_placebo.csv", index=False)
@@ -74,6 +72,34 @@ def cmd_research(a) -> None:
         cross.to_csv(RESULTS / "cross_asset.csv", index=False)
     path = build_report(results, wf, placebo, cross, kb, missing, p)
     print(f"report -> {path}")
+
+
+def cmd_report(a) -> None:
+    """Rebuild the report from saved grids (no re-run of the search)."""
+    import json
+
+    p = _params(a)
+    kb = KnowledgeBase()
+    results, wf, placebo, missing = {}, {}, {}, {}
+    for k in _assets(a.assets):
+        gp = RESULTS / f"{k}_grid.parquet"
+        if not gp.exists():
+            missing[k] = "no saved grid; run `python -m ictlab research` first"
+            continue
+        prep = prepare(k, load_asset(k, source="cache"), p)
+        meta = json.loads((RESULTS / f"{k}_meta.json").read_text())
+        grid = pd.read_parquet(gp)
+        grid = kb.rank(grid, k) if "final_mean" not in grid else grid
+        results[k] = {**prep, "grid": grid, "meta": meta}
+        if meta.get("walk_forward"):
+            wf[k] = meta["walk_forward"]
+        pp = RESULTS / f"{k}_placebo.csv"
+        if pp.exists():
+            placebo[k] = pd.read_csv(pp)
+    cross = cross_asset([r["grid"] for r in results.values()]) if len(results) > 1 else None
+    if cross is not None:
+        cross.to_csv(RESULTS / "cross_asset.csv", index=False)
+    print(f"report -> {build_report(results, wf, placebo, cross, kb, missing, p)}")
 
 
 def cmd_replay(a) -> None:
@@ -132,7 +158,7 @@ def cmd_scan(a) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(prog="ictlab")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("fetch", "research", "scan", "replay"):
+    for name in ("fetch", "research", "scan", "replay", "report"):
         s = sub.add_parser(name)
         s.add_argument("--assets", nargs="+", default=["all"])
         s.add_argument("--overlap", choices=["overlap", "inside"], default="overlap")
@@ -140,7 +166,8 @@ def main() -> None:
         s.add_argument("--oos", type=float, default=0.30)
         if name == "fetch":
             s.add_argument("--source", default="auto",
-                           choices=["auto", "dukascopy", "binance", "yahoo", "csv", "github_xau"])
+                           choices=["auto", "github", "dukascopy", "binance", "yahoo", "csv",
+                                    "github_xau"])
             s.add_argument("--csv", default=None)
             s.add_argument("--start", default="2012-01-01")
         if name == "research":
@@ -155,7 +182,7 @@ def main() -> None:
             s.add_argument("--warmup", type=float, default=0.4)
     a = ap.parse_args()
     {"fetch": cmd_fetch, "research": cmd_research, "scan": cmd_scan,
-     "replay": cmd_replay}[a.cmd](a)
+     "replay": cmd_replay, "report": cmd_report}[a.cmd](a)
 
 
 if __name__ == "__main__":

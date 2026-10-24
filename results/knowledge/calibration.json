@@ -1,9 +1,44 @@
 {
+  "NQ": {
+    "kappa": 1.0,
+    "forward_trades": 0.0,
+    "realized_r": 0.0,
+    "predicted_r": 0.0,
+    "updated": "2026-10-24 08:35"
+  },
+  "SPX": {
+    "kappa": 1.0,
+    "forward_trades": 0.0,
+    "realized_r": 0.0,
+    "predicted_r": 0.0,
+    "updated": "2026-10-24 08:39"
+  },
   "XAU": {
     "kappa": 1.0,
     "forward_trades": 0.0,
     "realized_r": 0.0,
     "predicted_r": 0.0,
-    "updated": "2026-10-24 07:40"
+    "updated": "2026-10-24 08:43"
+  },
+  "XAG": {
+    "kappa": 1.0,
+    "forward_trades": 0.0,
+    "realized_r": 0.0,
+    "predicted_r": 0.0,
+    "updated": "2026-10-24 08:49"
+  },
+  "BTC": {
+    "kappa": 1.0,
+    "forward_trades": 0.0,
+    "realized_r": 0.0,
+    "predicted_r": 0.0,
+    "updated": "2026-10-24 08:57"
+  },
+  "ETH": {
+    "kappa": 1.0,
+    "forward_trades": 0.0,
+    "realized_r": 0.0,
+    "predicted_r": 0.0,
+    "updated": "2026-10-24 09:00"
   }
 }
