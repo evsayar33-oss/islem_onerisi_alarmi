@@ -112,6 +112,12 @@ D (new combos). Each stage was run because the stage before it did not pass.
   holdout trades each, mostly negative (-0.33 to -0.48 R; one +0.06 R).
   **NQ, SPX and XAG still have no holdout 15m data and remain untested.**
   No free source with full history was found for them.
+- **API keys tried (2026-10-24).** Twelve Data: free daily credit limit already used up
+  (HTTP 429, limit 800 per day). Alpha Vantage: `FX_INTRADAY` and
+  `TIME_SERIES_INTRADAY` with `month=` are premium endpoints on the free key (and the
+  free key allows 25 requests per day). Result: **NQ, SPX, XAG: Stage B closed as
+  "not testable with free data".** Needed: 15m bars from 2024-09 to now
+  (NQ/SPX futures or CFD, XAG spot). The minute downloader was stopped.
 
 ## 6. Stage C - news and macro calendar (`scripts/stage_c_macro.py`)
 - Events: 511 CPI and NFP (08:30 NY) and FOMC (14:00 NY) dates,
