@@ -84,10 +84,28 @@ def load_dukascopy(symbol: str, start: str = "2012-01-01", end: str | None = Non
     months = pd.date_range(pd.Timestamp(start, tz="UTC"), end_ts, freq="MS")
     frames = []
     div = DUKA_DIVISOR.get(symbol, 100000.0)
-    for m in months:
-        url = (f"https://datafeed.dukascopy.com/datafeed/{symbol}/{m.year}/"
-               f"{m.month - 1:02d}/BID_candles_hour_1.bi5")
-        raw = _http_get(url)
+    store = CACHE.parent / "raw" / "dukascopy" / symbol
+    store.mkdir(parents=True, exist_ok=True)
+    this_month = pd.Timestamp(datetime.now(timezone.utc).date().isoformat(), tz="UTC").replace(day=1)
+    for n, m in enumerate(months, 1):
+        f = store / f"{m:%Y-%m}.bi5"
+        raw = None
+        if f.exists() and m < this_month:  # finished months never change: reuse
+            raw = f.read_bytes()
+        else:
+            url = (f"https://datafeed.dukascopy.com/datafeed/{symbol}/{m.year}/"
+                   f"{m.month - 1:02d}/BID_candles_hour_1.bi5")
+            # The feed rate-limits (429 / 503 / resets / timeouts): back off and retry.
+            for attempt in range(6):
+                try:
+                    raw = _http_get(url, timeout=30)
+                    break
+                except Exception:
+                    time.sleep(2 * 2 ** attempt)
+            if raw:
+                f.write_bytes(raw)
+            time.sleep(0.5)
+        print(f"{symbol} {m:%Y-%m} {n}/{len(months)} {'ok' if raw else 'missing'}", flush=True)
         if raw:
             frames.append(decode_dukascopy_candles(raw, m.to_pydatetime(), div))
     if not frames:
