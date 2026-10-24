@@ -38,7 +38,7 @@ istatistiksel olarak güvenilir bir kâr üretmedi.
 | 0c | High win-rate search (top 20 per asset) | - | -0.04 to -0.21 on 5 assets, +0.01 on XAG | - | 1/6 | negative |
 | A1 | Volatility sizing: inverse ATR (INVVOL) | 244 | -0.060 | -0.45 | 2/6 | negative |
 | A2 | Volatility sizing: regime weights (REGIME) | 244 | -0.074 | -0.61 | 1/6 | negative |
-| B | 15m confirmation entry, crypto only (BTC, ETH) | 88 | +0.086 | +0.52 | 2/2 | not significant; 4 assets missing |
+| B | 15m confirmation entry (BTC, ETH, XAU proxy; NQ, SPX, XAG no data) | 115 | -0.013 | -0.08 | 2/6 | negative / not significant |
 | B' | 15m entry, all candidate rules (crypto) | 587 | +0.052 | +0.61 | 1/2 | not significant |
 | C1 | Macro filter chosen per asset (AVOID / POST / NONE) | 99 | -0.063 | -0.39 | 3/6 | negative |
 | C2 | News candle strategy (CPI, NFP, FOMC) | 176 | +0.028 | +0.24 | 4/6 | not significant |
@@ -99,6 +99,19 @@ D (new combos). Each stage was run because the stage before it did not pass.
   comes from BTC and ETH only. It is not a test of the four missing assets.
   The minute download covers only about 50-75 of 672 days per asset (rate limit),
   so the result for these four assets stays open.
+
+- **XAU added with a gold-token proxy (2026-10-24).** Dukascopy answered mostly
+  HTTP 429 even with one paced request stream (`scripts/fetch_minutes_paced.py`), so
+  the minute download did not progress. Yahoo is blocked (429); TextToQuant and FMP
+  need a paid plan for metals, indices and intraday data; Binance futures XAU/XAG/QQQ/SPY
+  start only in 2025-12 to 2026-04. For gold, Binance spot PAXGUSDT 15m (full holdout) was
+  scaled to the XAU 1h close with an hourly ratio (`scripts/build_xau_paxg.py`).
+  This is a proxy, not the same price feed; PAXG also trades on weekends.
+  XAU holdout (47 300 bars) result: pooled six-asset primary 115 trades, -0.013 R,
+  t -0.08, 2/6; all candidates 773 trades, -0.033 R, t -0.45. XAU rules: 27-51
+  holdout trades each, mostly negative (-0.33 to -0.48 R; one +0.06 R).
+  **NQ, SPX and XAG still have no holdout 15m data and remain untested.**
+  No free source with full history was found for them.
 
 ## 6. Stage C - news and macro calendar (`scripts/stage_c_macro.py`)
 - Events: 511 CPI and NFP (08:30 NY) and FOMC (14:00 NY) dates,
