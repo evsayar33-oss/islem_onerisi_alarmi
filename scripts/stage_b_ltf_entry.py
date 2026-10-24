@@ -47,7 +47,7 @@ STOPS = ("ltf_pattern", "h1_zone", "ltf_atr2")
 def load_ltf(key: str) -> pd.DataFrame:
     parts = []
     for name in (f"{key}_15m.parquet", f"{key}_15m_oanda.parquet", f"{key}_15m_epsoft.parquet",
-                 f"{key}_15m_duka.parquet", f"{key}_15m_paxg.parquet"):
+                 f"{key}_15m_duka.parquet", f"{key}_15m_paxg.parquet", f"{key}_15m_etf.parquet"):
         f = CACHE / name
         if f.exists():
             parts.append(pd.read_parquet(f))

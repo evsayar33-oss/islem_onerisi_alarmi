@@ -38,7 +38,7 @@ istatistiksel olarak güvenilir bir kâr üretmedi.
 | 0c | High win-rate search (top 20 per asset) | - | -0.04 to -0.21 on 5 assets, +0.01 on XAG | - | 1/6 | negative |
 | A1 | Volatility sizing: inverse ATR (INVVOL) | 244 | -0.060 | -0.45 | 2/6 | negative |
 | A2 | Volatility sizing: regime weights (REGIME) | 244 | -0.074 | -0.61 | 1/6 | negative |
-| B | 15m confirmation entry (BTC, ETH, XAU proxy; NQ, SPX, XAG no data) | 115 | -0.013 | -0.08 | 2/6 | negative / not significant |
+| B | 15m confirmation entry, all six assets (XAU, NQ, SPX, XAG on proxy data) | 256 | +0.033 | +0.28 | 4/6 | not significant (fails t >= 2) |
 | B' | 15m entry, all candidate rules (crypto) | 587 | +0.052 | +0.61 | 1/2 | not significant |
 | C1 | Macro filter chosen per asset (AVOID / POST / NONE) | 99 | -0.063 | -0.39 | 3/6 | negative |
 | C2 | News candle strategy (CPI, NFP, FOMC) | 176 | +0.028 | +0.24 | 4/6 | not significant |
@@ -118,6 +118,16 @@ D (new combos). Each stage was run because the stage before it did not pass.
   free key allows 25 requests per day). Result: **NQ, SPX, XAG: Stage B closed as
   "not testable with free data".** Needed: 15m bars from 2024-09 to now
   (NQ/SPX futures or CFD, XAG spot). The minute downloader was stopped.
+- **Second Twelve Data key worked (2026-10-24), all six assets now tested.** Its free
+  plan has no XAG/USD, NDX or SPX, so ETF proxies were used: QQQ for NQ, SPY for SPX,
+  SLV for XAG (`scripts/fetch_twelvedata_etf.py`, key read from an environment
+  variable). Bars exist only in US regular hours (09:30-16:00 NY); each bar is scaled
+  to the CFD price by the previous day's 15:00-16:00 NY close ratio. Holdout: about
+  12 900 bars each. Entries outside US hours are not possible for these three assets.
+  Final Stage B (primary rules, six assets): 256 trades, +0.033 R, t +0.28, 4/6 assets
+  positive -> **not positive** (needs t >= 2). Per asset: BTC +0.167, ETH +0.019,
+  NQ +0.004, SPX +0.151, XAU -0.335, XAG -0.290. All candidates: 1450 trades, -0.018 R,
+  t -0.33, 2/6. Proxy data (XAU, NQ, SPX, XAG) limits how far these numbers can be trusted.
 
 ## 6. Stage C - news and macro calendar (`scripts/stage_c_macro.py`)
 - Events: 511 CPI and NFP (08:30 NY) and FOMC (14:00 NY) dates,
