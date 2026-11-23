@@ -41,3 +41,24 @@ hafta sonuna baktığından erişilebilir veri sunamadı. Bu düzeltme son
 403/404 ve eksik seanslar yine NO_DATA olarak kalır. Yalnız çalışan
 kaynaktan tamamlanmış mum alınıp sayılır. Hiçbir sektör/CFD serisi
 otomatik futures verisiyle değiştirilmez.
+
+## Ayrı kaynak / erişim yedeği (23 Kasım)
+
+Dukascopy BID CFD kaynakları hafta içi aday günlerinde de GitHub Actions
+üzerinden erişilemedi. Yeni yöntem, Dukascopy 403/429 erişim reddini
+kapalı piyasa seansı gibi sınıflandırmaz ve engel varken her günü tekrar
+tekrar sorgulamaz. **Kaynak erişimi hâlâ çözülmüş sayılmaz.**
+
+Yalnız tamamlayıcı araştırma bağlamı için ücretsiz Yahoo 60m continuous
+futures serileri ayrı bir `proxy_datasets` nesnesine eklenir:
+`NQ=F`, `ES=F`, `GC=F`, `SI=F`. Bunlar sırasıyla NQ/SPX/XAU/XAG
+orijinal **Dukascopy CFD BID** fiyatlarının eşdeğeri değildir; farklı
+sözleşme, rollover, seans, fiyat yapısı ve veri lisansı olabilir.
+Orijinal `datasets` içinde asla yerlerine yazılmaz; proxy ile gerçek
+ICT backtest, fill, zarar-durdur veya PAPER terfisi yapılamaz.
+
+Barların en geç veri edinim anından önce tamamlanması, en fazla yedi
+takvim günlük olması, instrument metaverisinin eşleşmesi ve OHLCV
+fiziksel bütünlük kontrolünden geçmesi zorunludur. Yahoo da veri
+vermezse bu açıkça ayrı kaynak eksikliği olarak kaydedilir; sahte veya
+retrospektif ilk-gözlem zamanı türetilmez.
