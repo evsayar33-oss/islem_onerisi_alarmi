@@ -8,7 +8,10 @@ on:
       - 'tests/test_prospective_collector.py'
   push:
     branches: ['ccr-3c5384a8-621y97']
-    paths: ['.github/workflows/ict_prospective_evidence.yml']
+    paths:
+      - '.github/workflows/ict_prospective_evidence.yml'
+      - 'ictlab/prospective_collector.py'
+      - 'tests/test_prospective_collector.py'
   schedule:
     - cron: '15 9 * * *'
 permissions:
