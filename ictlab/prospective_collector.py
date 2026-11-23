@@ -116,6 +116,22 @@ def dukascopy_rows(raw,day,observed,symbol):
     return out
 
 
+def previous_market_candidate_days(now, wanted=3):
+    """Select previous weekday UTC dates, not assumed completed sessions.
+
+    Holiday calendars and early closes are provider-specific. Missing source
+    remains missing; this only ensures Monday scans include the last Friday.
+    Do NOT manufacture the skipped weekend/holiday bars.
+    """
+    days = []
+    cursor = now.date()
+    while len(days) < wanted:
+        cursor -= timedelta(days=1)
+        if cursor.weekday() < 5:
+            days.append(cursor)
+    return sorted(days)
+
+
 def collect(now=None,get=fetch_public):
     now=now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -126,8 +142,12 @@ def collect(now=None,get=fetch_public):
     for asset,spec in ASSETS.items():
         rows={}
         provenance=[]
-        for lag in (2,1):
-            day=(now-timedelta(days=lag)).date()
+        # Crypto trades through weekends. US index/metal derivatives have
+        # exchange sessions: use previous three weekdays (candidate dates)
+        # and verify every requested day against actual published bars.
+        days = ([(now-timedelta(days=lag)).date() for lag in (2,1)]
+                if spec.binance else previous_market_candidate_days(now))
+        for day in days:
             if spec.binance:
                 url=f"{BINANCE}/{spec.binance}/1h/{spec.binance}-1h-{day}.zip"
             else:
@@ -223,7 +243,8 @@ def main():
     (out/"source_report.json").write_text(
         json.dumps(snapshot,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     lines=["# ICT real-data collection; six original assets",
-           "Source is previous 2 UTC days, collected only now. Earlier bars are NOT first-seen signals.",
+           "Crypto: previous two UTC dates; US index/metals: previous three weekdays (calendar candidates only).",
+           "Each candle requires real provider bytes. Earlier prices are NOT retroactive first-seen signals.",
            "Markets with valid bars: "+", ".join(result["datasets"]),
            "Missing sources: "+str(len(result["failed_sources"])),
            "Evidence: "+report["status"],
