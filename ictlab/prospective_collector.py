@@ -132,6 +132,93 @@ def previous_market_candidate_days(now, wanted=3):
     return sorted(days)
 
 
+# These are distinct CME-style continuous futures proxies, NOT Dukascopy
+# BID CFDs and NEVER substitutions in ICT strategy backtests/production.
+YAHOO_FUTURES_PROXIES = {
+    "NQ": "NQ=F", "SPX": "ES=F", "XAU": "GC=F", "XAG": "SI=F",
+}
+
+
+def futures_proxy_rows(raw, ticker, observed):
+    """Read public Yahoo 60m OHLCV with strict instrument/time sanity.
+
+    Yahoo continuous rolls, pricing and session hours differ materially from
+    the original Dukascopy CFD market. Retain this dataset only as a parallel
+    context-control series. It MUST NOT be selected as the same asset in the
+    historical ICT regime/fill engine.
+    """
+    if not raw or len(raw) > MAX_COMPRESSED_BYTES:
+        raise ValueError("YAHOO_PROXY_RESPONSE_INVALID")
+    payload = json.loads(raw)
+    result = payload.get("chart", {}).get("result", [])
+    if not isinstance(result, list) or len(result) != 1:
+        raise ValueError("YAHOO_PROXY_CHART_UNAVAILABLE")
+    chart = result[0]
+    meta = chart.get("meta", {})
+    if meta.get("symbol") != ticker:
+        raise ValueError("YAHOO_PROXY_WRONG_INSTRUMENT")
+    indicators = chart.get("indicators", {}).get("quote", [])
+    timestamps = chart.get("timestamp", [])
+    if not isinstance(indicators, list) or len(indicators) != 1:
+        raise ValueError("YAHOO_PROXY_QUOTES_UNAVAILABLE")
+    quote = indicators[0]
+    names = ("open", "high", "low", "close", "volume")
+    if not all(isinstance(quote.get(k), list) for k in names):
+        raise ValueError("YAHOO_PROXY_INCOMPLETE_FIELDS")
+    seen = {}
+    for i, ts in enumerate(timestamps):
+        try:
+            t = datetime.fromtimestamp(int(ts),timezone.utc)
+            if (t + timedelta(hours=1) > observed
+                    or t < observed - timedelta(days=7)):
+                continue
+            bar = {name: quote[name][i] for name in names}
+            if not valid_candle(bar):
+                continue
+        except (TypeError,ValueError,OverflowError,OSError,IndexError):
+            continue
+        seen[t.isoformat()] = {
+            "open_utc":t.isoformat(),
+            **{k:round(float(v),8) for k,v in bar.items()}}
+    return [seen[k] for k in sorted(seen)]
+
+
+def collect_futures_context_proxies(now, get, failures):
+    """Data are deliberately NOT merged into exact-venue CFD observations."""
+    result={}
+    for asset,ticker in YAHOO_FUTURES_PROXIES.items():
+        url=("https://query1.finance.yahoo.com/v8/finance/chart/"
+             +ticker.replace("=","%3D")+"?range=7d&interval=60m")
+        try:
+            blob=get(url)
+            if blob is None:
+                failures[asset+"/YAHOO_PROXY"]="NO_PUBLIC_CHART"
+                continue
+            bars=futures_proxy_rows(blob,ticker,now)
+            if not bars:
+                failures[asset+"/YAHOO_PROXY"]="NO_VERIFIED_CLOSED_PROXY_BARS"
+                continue
+            result[asset+"_FUTURES_PROXY"]={
+                "symbol":ticker,
+                "source":"YAHOO_CONTINUOUS_FUTURES_PROXY_60M",
+                "distinct_from_primary_dukas_bid":True,
+                "execution_substitute_permitted":False,
+                "trade_signal_permitted":False,
+                "source_recorded_utc":now.isoformat(),
+                "provider_sha256":hashlib.sha256(blob).hexdigest(),
+                "provider_url":url,
+                "latest_complete_bar":bars[-1]["open_utc"],
+                "bars":bars,
+            }
+        except (ValueError,TypeError,KeyError,OverflowError,
+                requests.RequestException,OSError) as exc:
+            status=(getattr(getattr(exc,"response",None),"status_code",None)
+                    if isinstance(exc,requests.RequestException) else None)
+            failures[asset+"/YAHOO_PROXY"]=(
+                "HTTP_"+str(status) if status else type(exc).__name__)
+    return result
+
+
 def collect(now=None,get=fetch_public):
     now=now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -183,10 +270,14 @@ def collect(now=None,get=fetch_public):
                               "provider_provenance":provenance,
                               "signals_first_observed_in_past":False,
                               "is_prospective_trade_confirmation":False}
+    # Explicit 1h CME-style proxies for contextual analysis, never direct
+    # replacement for missing Dukascopy BID CFD market observations.
+    proxies=collect_futures_context_proxies(now,get,failures)
     return {"schema":SCHEMA,
             "captured_utc":now.isoformat(),
             "source_market":"SIX_ORIGINAL_ICT_ASSETS",
-            "datasets":datasets,"failed_sources":failures,
+            "datasets":datasets,"proxy_datasets":proxies,
+            "failed_sources":failures,
             "no_synthetic_intervals":True,
             "historical_fetched_later_not_retroactive_first_seen_signal":True,
             "research_only":True,"paper_approved":False,"live_allowed":False}
@@ -210,12 +301,18 @@ def read(path):
 
 def append(path,scan):
     old=read(path)
-    if scan.get("schema")!=SCHEMA or not scan["datasets"]:
+    if scan.get("schema")!=SCHEMA or (not scan["datasets"] and not scan.get("proxy_datasets")):
         return {"status":"NO_REAL_COMPLETE_BARS_NO_APPEND","records":len(old)}
     summary={asset: {"latest":v["latest_complete_bar"],
                      "raw_sha": [k["raw_sha256"] for k in v["provider_provenance"]]}
              for asset,v in scan["datasets"].items()}
-    key=sha(summary)
+    # Independent proxy source digests cannot silently mutate original
+    # instrument truth; recording any new provider data never makes a trade.
+    proxy_summary={asset: {"latest":v["latest_complete_bar"],
+                           "raw_sha":v["provider_sha256"],
+                           "instrument":v["symbol"]}
+                   for asset,v in scan.get("proxy_datasets",{}).items()}
+    key=sha({"primary_exact":summary,"independent_context_proxy":proxy_summary})
     if old and old[-1].get("input_digest")==key:
         return {"status":"IDENTICAL_SOURCE_NO_DUPLICATE_EVENT","records":len(old)}
     row=dict(scan)
@@ -246,13 +343,16 @@ def main():
            "Crypto: previous two UTC dates; US index/metals: previous three weekdays (calendar candidates only).",
            "Each candle requires real provider bytes. Earlier prices are NOT retroactive first-seen signals.",
            "Markets with valid bars: "+", ".join(result["datasets"]),
+           "Independent CME futures CONTEXT PROXIES (not CFD replacements): "+
+              ", ".join(result.get("proxy_datasets",{})),
            "Missing sources: "+str(len(result["failed_sources"])),
            "Evidence: "+report["status"],
            "No historical OOS re-selection, no synthetic candles, no PAPER/LIVE acceptance."]
     (out/"report.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
-    print("ICT_COLLECT",len(result["datasets"]),"markets",
+    print("ICT_COLLECT",len(result["datasets"]),"original markets;",
+          len(result.get("proxy_datasets",{})),"independent proxy markets",
           len(result["failed_sources"]),"partial failures",report["status"])
-    if not result["datasets"]:
+    if not result["datasets"] and not result.get("proxy_datasets"):
         raise SystemExit("NO_VERIFIED_MARKET_BARS")
 
 
