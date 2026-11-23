@@ -1,0 +1,82 @@
+name: ICT six-asset prospective real 1h evidence (NO TRADING)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/ict_prospective_evidence.yml'
+      - 'ictlab/prospective_collector.py'
+      - 'tests/test_prospective_collector.py'
+  push:
+    branches: ['ccr-3c5384a8-621y97']
+    paths: ['.github/workflows/ict_prospective_evidence.yml']
+  schedule:
+    - cron: '15 9 * * *'
+permissions:
+  contents: write
+concurrency:
+  group: ict-prospective-real-ohlcv-evidence
+  cancel-in-progress: false
+jobs:
+  six-asset-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only required free-source readers
+        run: python -m pip install 'numpy>=2,<3' 'pandas>=2.2,<3' 'requests>=2.31,<3'
+      - name: Offline genuine-price and SHA-chain regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_prospective_collector.py' -v
+          python -m py_compile ictlab/prospective_collector.py
+      - name: Restore ONLY separate first-observed raw evidence state
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          B='research/ict-firstseen-ohlcv'
+          ROOT="$RUNNER_TEMP/ict-independent-real-source"
+          if git ls-remote --exit-code --heads origin "$B" >/dev/null 2>&1; then
+            git fetch -q --depth=1 origin "refs/heads/$B"
+            git worktree add --detach "$ROOT" FETCH_HEAD
+          else
+            git worktree add --detach "$ROOT" HEAD
+          fi
+          mkdir -p "$ROOT/observations/ict"
+          echo "ICT_RESEARCH_STATE=$ROOT" >> "$GITHUB_ENV"
+      - name: Collect real last two UTC days for each of six ORIGINAL ICT assets
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m ictlab.prospective_collector \
+            --ledger "$ICT_RESEARCH_STATE/observations/ict/recent_1h.jsonl" \
+            --out out/ict_real_data
+          cat out/ict_real_data/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve SHA-linked new source observations only
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$ICT_RESEARCH_STATE"
+          test -f "$ROOT/observations/ict/recent_1h.jsonl" || exit 0
+          git -C "$ROOT" config user.name 'github-actions[bot]'
+          git -C "$ROOT" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$ROOT" add observations/ict/recent_1h.jsonl
+          if git -C "$ROOT" diff --cached --quiet; then
+            echo 'NO_NEW_COMPLETE_MARKET_CANDLES' >> "$GITHUB_STEP_SUMMARY"
+          else
+            git -C "$ROOT" commit -m 'research(ict): observed full UTC 1h bars [skip ci]'
+            git -C "$ROOT" push origin HEAD:refs/heads/research/ict-firstseen-ohlcv
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name != 'pull_request'
+        with:
+          name: ict-six-asset-real-1h-${{ github.run_id }}
+          path: out/ict_real_data/
+          retention-days: 90
+          if-no-files-found: warn
