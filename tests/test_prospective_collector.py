@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from ictlab.prospective_collector import (
-    append, binance_rows, collect, dukascopy_rows, read, valid_candle,
+    append, binance_rows, collect, dukascopy_rows, read, valid_candle, previous_market_candidate_days,
 )
 
 
@@ -72,6 +72,26 @@ class ProspectiveICT(unittest.TestCase):
         self.assertGreater(len(a["failed_sources"]),0)
         self.assertFalse(a["datasets"]["BTC"]["is_prospective_trade_confirmation"])
         self.assertFalse(a["paper_approved"])
+
+    def test_monday_scan_includes_previous_friday_not_only_weekend(self):
+        monday=datetime(2026,11,23,8,tzinfo=timezone.utc)
+        days=previous_market_candidate_days(monday)
+        self.assertEqual([str(d) for d in days],
+                         ["2026-11-18","2026-11-19","2026-11-20"])
+        seen=[]
+        def provider(url):
+            seen.append(url)
+            if "BTCUSDT-1h-2026-11-22" in url:
+                return zip_klines(date(2026,11,22))
+            return None
+        scan=collect(monday,provider)
+        self.assertTrue(any("/2026/10/20/" in url for url in seen))
+        self.assertFalse(any("/2026/10/21/" in url for url in seen))
+        self.assertFalse(any("/2026/10/22/" in url for url in seen))
+        self.assertEqual(scan["datasets"]["BTC"]["latest_complete_bar"],
+                         "2026-11-22T00:00:00+00:00")
+        self.assertEqual(list(scan["datasets"]),["BTC"])
+        self.assertFalse(scan["live_allowed"])
 
     def test_sha_append_idempotence_and_tamper_detection(self):
         now=datetime(2026,11,24,10,tzinfo=timezone.utc)
