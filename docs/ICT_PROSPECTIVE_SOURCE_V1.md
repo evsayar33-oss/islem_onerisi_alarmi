@@ -5,7 +5,9 @@ sonuçlarını yeniden seçmiyoruz veya değiştirmiyoruz. Çünkü tarihsel
 başarıya bakarak yeni parametre seçmek geçmiş holdout'u kirletir.
 
 Bu bağımsız araştırma kaydı her gün **gerçek, tamamlanmış 1h OHLCV**
-verisini *önceki iki UTC günü* için altı özgün varlıkta toplamayı dener:
+verisini kriptoda önceki iki UTC günü, endeks/metal kaynaklarında önceki
+üç hafta içi gününü (takvim adayları; borsa seansı teyidi değildir) tarayarak
+altı özgün varlıkta toplamayı dener:
 NQ ve SPX Dukascopy CFD/BID fiyatı, XAU ve XAG Dukascopy BID, BTC ve
 ETH Binance SPOT (data.binance.vision) kamu arşivi. Bunlar birbirine
 eşit komisyon, borsa ya da gerçek fill kaynağı değildir; her kaynağın
@@ -31,3 +33,11 @@ kimliği ve ham SHA-256 parmak izi ayrı kalır.
 ile bir kez manuel de çalıştırılabilir. Genel cron saat garantisi
 yoktur. Veri sağlayıcı erişilemezse sonuç eksik olarak görünür;
 sahte bar veya PAPER/LIVE emir oluşturulmaz.
+
+**23 Kasım gerçek provider sınaması:** İlk çalışma BTC/ETH için her biri
+48 geçerli saatlik bar topladı. NQ/SPX/XAU/XAG pazartesi sabahı yalnız
+hafta sonuna baktığından erişilebilir veri sunamadı. Bu düzeltme son
+çarşamba-perşembe-cuma günlerini de sorgular. Tatil, rate limit, HTTP
+403/404 ve eksik seanslar yine NO_DATA olarak kalır. Yalnız çalışan
+kaynaktan tamamlanmış mum alınıp sayılır. Hiçbir sektör/CFD serisi
+otomatik futures verisiyle değiştirilmez.
