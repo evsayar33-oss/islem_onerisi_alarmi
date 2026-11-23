@@ -261,7 +261,16 @@ def collect(now=None,get=fetch_public):
             except (requests.RequestException, ValueError, TypeError,
                     KeyError, OSError, zipfile.BadZipFile, EOFError,
                     RuntimeError) as exc:
-                failures[f"{asset}/{day}"]=type(exc).__name__
+                code=getattr(getattr(exc,"response",None),"status_code",None)
+                failures[f"{asset}/{day}"]=(
+                    "HTTP_"+str(code) if code else type(exc).__name__)
+                # A real 403 access denial or 429 throttling is not a
+                # market holiday. Do not hammer every historical day and
+                # misclassify blocked provider access as 'no session'.
+                if not spec.binance and code in (403,429):
+                    failures[asset+"/PRIMARY_PROVIDER_ACCESS"]=(
+                        "DUKASCOPY_BLOCKED_HTTP_"+str(code))
+                    break
         if rows:
             datasets[asset]={"instrument":spec.binance or spec.dukascopy,
                               "source_recorded_utc":now.isoformat(),
