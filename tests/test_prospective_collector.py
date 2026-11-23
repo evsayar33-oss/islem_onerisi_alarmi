@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from ictlab.prospective_collector import (
-    append, binance_rows, collect, dukascopy_rows, read, valid_candle, previous_market_candidate_days,
+    append, binance_rows, collect, dukascopy_rows, read, valid_candle, previous_market_candidate_days, futures_proxy_rows,
 )
 
 
@@ -92,6 +92,48 @@ class ProspectiveICT(unittest.TestCase):
                          "2026-11-22T00:00:00+00:00")
         self.assertEqual(list(scan["datasets"]),["BTC"])
         self.assertFalse(scan["live_allowed"])
+
+    def test_independent_futures_proxy_strict_instrument_and_closed_time(self):
+        now=datetime(2026,11,23,16,tzinfo=timezone.utc)
+        valid=datetime(2026,11,23,12,tzinfo=timezone.utc)
+        future=datetime(2026,11,23,16,tzinfo=timezone.utc)
+        ts=[int(valid.timestamp()),int(future.timestamp())]
+        data={"chart":{"result":[{
+            "meta":{"symbol":"GC=F"},
+            "timestamp":ts,
+            "indicators":{"quote":[{
+                "open":[4000,4005],"high":[4010,4012],
+                "low":[3990,3991],"close":[4001,4002],
+                "volume":[123,222]}]}}]}}
+        raw=json.dumps(data).encode()
+        x=futures_proxy_rows(raw,"GC=F",now)
+        self.assertEqual(len(x),1)
+        self.assertEqual(x[0]["close"],4001)
+        with self.assertRaisesRegex(ValueError,"WRONG_INSTRUMENT"):
+            futures_proxy_rows(raw,"XAUUSD",now)
+
+    def test_futures_proxy_never_fills_missing_original_cfd_series(self):
+        now=datetime(2026,11,23,16,tzinfo=timezone.utc)
+        stamp=int(datetime(2026,11,20,12,tzinfo=timezone.utc).timestamp())
+        chart={"chart":{"result":[{
+            "meta":{"symbol":"NQ=F"},"timestamp":[stamp],
+            "indicators":{"quote":[{
+                "open":[24000],"high":[24100],"low":[23900],
+                "close":[24050],"volume":[240]}]}}]}}
+        def get(url):
+            if "NQ%3DF" in url:
+                return json.dumps(chart).encode()
+            return None
+        result=collect(now,get)
+        self.assertNotIn("NQ",result["datasets"])
+        self.assertIn("NQ_FUTURES_PROXY",result["proxy_datasets"])
+        self.assertFalse(result["proxy_datasets"]["NQ_FUTURES_PROXY"]
+                         ["execution_substitute_permitted"])
+        self.assertFalse(result["paper_approved"])
+        with tempfile.TemporaryDirectory() as d:
+            f=Path(d)/"future_context.jsonl"
+            self.assertEqual(append(f,result)["records"],1)
+            self.assertIn("IDENTICAL_SOURCE",append(f,result)["status"])
 
     def test_sha_append_idempotence_and_tamper_detection(self):
         now=datetime(2026,11,24,10,tzinfo=timezone.utc)
