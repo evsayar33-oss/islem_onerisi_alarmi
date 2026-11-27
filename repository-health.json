@@ -1,11 +1,11 @@
 {
   "repository": "evsayar33-oss/islem_onerisi_alarmi",
-  "observed_at": "2026-11-26T17:16:36.448780+00:00",
+  "observed_at": "2026-11-27T16:57:29.730501+00:00",
   "metrics": {
-    "repository_bytes": 1333248,
+    "repository_bytes": 1342464,
     "cache_bytes": 0,
-    "artifact_bytes": 127204,
-    "artifact_count": 13,
+    "artifact_bytes": 149233,
+    "artifact_count": 15,
     "release_count": 0,
     "release_asset_bytes": 0
   },
@@ -28,6 +28,6 @@
     "checkpoint_uncompressed_bytes": 603979776
   },
   "large_files": [],
-  "default_branch_commit_age_days": 2,
+  "default_branch_commit_age_days": 3,
   "status": "ok"
 }
